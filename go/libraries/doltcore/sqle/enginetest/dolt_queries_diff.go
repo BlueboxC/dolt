@@ -974,6 +974,23 @@ func assertDoltDiffColumnCount(view, selectStmt string, expected int64) []querie
 
 var DiffTableFunctionScriptTests = []queries.ScriptTest{
 	{
+		Name: "crossed primary key tags reject explicit revision diff",
+		SetUpScript: []string{
+			"CREATE TABLE tag_t (a INT, b INT, PRIMARY KEY(a,b));",
+			"CALL DOLT_UPDATE_COLUMN_TAG('tag_t','a','9001');",
+			"CALL DOLT_UPDATE_COLUMN_TAG('tag_t','b','9002');",
+			"INSERT INTO tag_t VALUES (1,2);",
+			"CALL DOLT_COMMIT('-Am','original tags');",
+			"CALL DOLT_UPDATE_COLUMN_TAG('tag_t','b','9003');",
+			"CALL DOLT_UPDATE_COLUMN_TAG('tag_t','a','9002');",
+			"CALL DOLT_COMMIT('-Am','crossed tags');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{Query: "SELECT * FROM DOLT_DIFF('HEAD~','HEAD','tag_t')", ExpectedErr: diff.ErrPrimaryKeySetChanged},
+			{Query: "SELECT * FROM DOLT_DIFF('HEAD','HEAD~','tag_t')", ExpectedErr: diff.ErrPrimaryKeySetChanged},
+		},
+	},
+	{
 		Name: "IN clause with NOT IN correctly returns table names from DOLT_DIFF",
 		SetUpScript: []string{
 			"CREATE TABLE test_table (id INT PRIMARY KEY, name VARCHAR(50));",

@@ -44,9 +44,15 @@ func CheckPrimaryKeys(from, to prolly.Map, fsch, tsch schema.Schema) error {
 		for i := 0; i < fsch.GetPKCols().Size(); i++ {
 			fc := fsch.GetPKCols().GetByIndex(i)
 			tc := tsch.GetPKCols().GetByIndex(i)
-			if fc.Tag != tc.Tag && !strings.EqualFold(fc.Name, tc.Name) {
-				equal = false
-				break
+			if fc.Tag != tc.Tag {
+				if !strings.EqualFold(fc.Name, tc.Name) {
+					equal = false
+					break
+				}
+				if tagged, ok := tsch.GetPKCols().GetByTag(fc.Tag); ok && !strings.EqualFold(tagged.Name, fc.Name) {
+					equal = false
+					break
+				}
 			}
 		}
 		if equal {
