@@ -33,6 +33,9 @@ func CheckPrimaryKeys(from, to prolly.Map, fsch, tsch schema.Schema) error {
 	if schema.IsKeyless(fsch) || schema.IsKeyless(tsch) {
 		return nil
 	}
+	if PrimaryKeyTagsConflict(fsch, tsch) {
+		return ErrPrimaryKeySetChanged.New()
+	}
 	if schema.ComparePrimaryKeys(fsch, tsch) != schema.PrimaryKeysDiffer {
 		return nil
 	}
@@ -49,10 +52,7 @@ func CheckPrimaryKeys(from, to prolly.Map, fsch, tsch schema.Schema) error {
 					equal = false
 					break
 				}
-				if tagged, ok := tsch.GetPKCols().GetByTag(fc.Tag); ok && !strings.EqualFold(tagged.Name, fc.Name) {
-					equal = false
-					break
-				}
+
 			}
 		}
 		if equal {
@@ -61,4 +61,21 @@ func CheckPrimaryKeys(from, to prolly.Map, fsch, tsch schema.Schema) error {
 	}
 
 	return ErrPrimaryKeySetChanged.New()
+}
+
+// PrimaryKeyTagsConflict reports a tag reused by a different named key column.
+// A rename alone is allowed; a retained same-name column must not lose its
+// mapping to another column's tag.
+func PrimaryKeyTagsConflict(from, to schema.Schema) bool {
+	for i := 0; i < from.GetPKCols().Size(); i++ {
+		col := from.GetPKCols().GetByIndex(i)
+		named, exists := to.GetPKCols().GetByNameCaseInsensitive(col.Name)
+		if !exists || col.Tag == named.Tag {
+			continue
+		}
+		if tagged, exists := to.GetPKCols().GetByTag(col.Tag); exists && !strings.EqualFold(col.Name, tagged.Name) {
+			return true
+		}
+	}
+	return false
 }

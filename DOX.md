@@ -13,7 +13,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - Base engine changes on the official v2.5.0 commit ea6ad5e1b7731e0c0df5a3252fef8e32dde4d26e. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes.
 - Keep storage corrections in Dolt. Do not introduce Beads-specific schema, tasks, orchestration, configuration or private project data.
 - Preserve upstream contributor tests and attribution. Remove a carried patch only after the corresponding upstream behavior passes its regression.
-- Reject incompatible primary-key diffs explicitly instead of returning mispaired rows. Preserve supported same-key and physically compatible type changes.
+- Reject incompatible explicit-revision primary-key diffs instead of returning mispaired rows. Historical system-table scans retain warning-and-stop behavior. Preserve supported same-key and physically compatible type changes.
 - Indexed and filter-based dolt_diff history reads must respect the selected head's ancestry; explicit cross-revision APIs retain their existing behavior. This is query correctness, not a new authorization boundary.
 
 ## Work Guidance

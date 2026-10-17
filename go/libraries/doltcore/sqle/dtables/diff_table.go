@@ -678,6 +678,10 @@ func (dp *DiffPartition) isDiffablePartition(ctx *sql.Context) (simpleDiff bool,
 		return false, false, err
 	}
 
+	if diff.PrimaryKeyTagsConflict(fromSch, toSch) {
+		return false, false, nil
+	}
+
 	easyDiff := schema.ComparePrimaryKeys(fromSch, toSch) != schema.PrimaryKeysDiffer
 	if easyDiff {
 		return true, false, nil
