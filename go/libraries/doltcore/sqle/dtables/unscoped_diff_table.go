@@ -43,7 +43,7 @@ var commitHashCol = "commit_hash"
 var filterColumnNameSet = set.NewStrSet([]string{commitHashCol})
 
 // UnscopedDiffTable is a sql.Table implementation of a system table that shows which tables have
-// changed in each commit, across all branches.
+// changed in each commit visible from the current head.
 type UnscopedDiffTable struct {
 	ddb              *doltdb.DoltDB
 	head             *doltdb.Commit
@@ -335,11 +335,33 @@ func (dt *UnscopedDiffTable) newCommitHistoryRowItrFromItr(ctx *sql.Context, ite
 
 // newCommitHistoryRowItr creates a doltDiffCommitHistoryRowItr from a list of commits.
 func (dt *UnscopedDiffTable) newCommitHistoryRowItrFromCommits(ctx *sql.Context, commits []*doltdb.Commit) (*doltDiffCommitHistoryRowItr, error) {
+	ancestry, err := dt.head.GetAncestry(ctx)
+	if err != nil {
+		return nil, err
+	}
+	visible := make([]*doltdb.Commit, 0, len(commits))
+	for _, commit := range commits {
+		h, err := commit.HashOf()
+		if err != nil {
+			return nil, err
+		}
+		height, err := commit.Height()
+		if err != nil {
+			return nil, err
+		}
+		inScope, err := ancestry.Contains(ctx, h, height)
+		if err != nil {
+			return nil, err
+		}
+		if inScope {
+			visible = append(visible, commit)
+		}
+	}
 	dchItr := &doltDiffCommitHistoryRowItr{
 		ctx:             ctx,
 		ddb:             dt.ddb,
 		tableChangesIdx: -1,
-		commits:         commits,
+		commits:         visible,
 	}
 	return dchItr, nil
 }
