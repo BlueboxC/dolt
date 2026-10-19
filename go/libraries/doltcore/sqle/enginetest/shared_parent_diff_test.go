@@ -15,11 +15,12 @@
 package enginetest
 
 import (
+	"testing"
+
 	"github.com/dolthub/go-mysql-server/enginetest"
 	"github.com/dolthub/go-mysql-server/enginetest/queries"
 	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
 	"github.com/dolthub/go-mysql-server/sql"
-	"testing"
 )
 
 func TestSharedParentDiff(t *testing.T) {
@@ -46,6 +47,10 @@ func TestSharedParentDiff(t *testing.T) {
 				{Query: "select to_pk,to_v from dolt_diff_t where to_commit=hashof('feat')", Expected: []sql.Row{{2, "b2"}}},
 				{Query: "select to_pk,to_v from dolt_diff_t where to_commit=hashof('main~1')", Expected: []sql.Row{{1, "a2"}}},
 				{Query: "select count(*) from dolt_diff_t", Expected: []sql.Row{{6}}},
+				{Query: "select to_pk,to_v from dolt_diff_t where from_commit=hashof('main~2') order by to_pk", Expected: []sql.Row{{1, "a2"}, {2, "b2"}}},
+				{Query: "select to_pk,to_v from dolt_diff_t where from_commit in (hashof('main~2'),hashof('feat'),hashof('main~1')) order by to_pk,to_v", Expected: []sql.Row{{1, "a2"}, {1, "a2"}, {2, "b2"}, {2, "b2"}}},
+				{Query: "select to_pk,to_v from dolt_diff_t where from_commit=hashof('main')", Expected: []sql.Row{}},
+
 				{Query: "select to_pk,to_v from dolt_diff_t where to_commit in (hashof('main'),hashof('feat'),hashof('main~1')) order by to_pk,to_v", Expected: []sql.Row{{1, "a2"}, {1, "a2"}, {2, "b2"}, {2, "b2"}}},
 				{Query: "select l.message,d.to_pk,d.to_v from dolt_diff_t d join dolt_log l on l.commit_hash=d.to_commit order by l.message,d.to_pk", Expected: []sql.Row{{"c1", 1, "a"}, {"c1", 2, "b"}, {"c2", 2, "b2"}, {"c3", 1, "a2"}, {"merge", 1, "a2"}, {"merge", 2, "b2"}}},
 			}}

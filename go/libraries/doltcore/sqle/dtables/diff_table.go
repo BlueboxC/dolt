@@ -277,169 +277,99 @@ func (dt *DiffTable) LookupPartitions(ctx *sql.Context, lookup sql.IndexLookup) 
 	}
 }
 
-// fromCommitLookupPartitions creates a diff partition iterator for a set
-// of commits. The structure of the iter requires we pre-populate the
-// children of from_commit for diffing. We walk the commit graph looking
-// for commits that reference |from_commit| as a parent, and forward populate
-// for the |from_commit| diff partitions we will iterate.
-// TODO the structure of the diff iterator doesn't appear to accommodate
-// several children for a parent hash.
+// fromCommitLookupPartitions retains every reachable child for the selected
+// parents. One ancestry walk serves all parents and only matching children load
+// table state; selecting HEAD alone keeps the direct WORKING-to-HEAD path.
 func (dt *DiffTable) fromCommitLookupPartitions(ctx *sql.Context, hashes []hash.Hash, commits []*doltdb.Commit) (sql.PartitionIter, error) {
 	tbl, ok, err := dt.workingRoot.GetTable(ctx, dt.tableName)
 	if err != nil {
 		return nil, err
-	} else if !ok {
+	}
+	if !ok {
 		return nil, fmt.Errorf("table: %s does not exist", dt.tableName.String())
 	}
-
+	headHash, err := dt.head.HashOf()
+	if err != nil {
+		return nil, err
+	}
+	selected := make(map[hash.Hash]bool)
 	var parentHashes []hash.Hash
-	cmHashToTblInfo := make(map[hash.Hash][]TblInfoAtCommit)
-	var pCommits []*doltdb.Commit
-	for i, hs := range hashes {
-		headHash, err := dt.head.HashOf()
-		if err != nil {
-			return nil, err
-		}
-		if hs.Equal(headHash) {
-			// If from_commit specifies the 'HEAD' commit, we need to include
-			// the working root in the parent commits because 'WORKING' is one step
-			// above 'HEAD'.
-			wrTblHash, _, err := dt.workingRoot.GetTableHash(ctx, dt.tableName)
-			if err != nil {
-				return nil, err
-			}
-			toCmInfo := TblInfoAtCommit{name: "WORKING", tbl: tbl, tblHash: wrTblHash}
-			cmHashToTblInfo[hs] = []TblInfoAtCommit{toCmInfo}
-			parentHashes = append(parentHashes, hs)
-			pCommits = append(pCommits, dt.head)
+	var parents []*doltdb.Commit
+	infos := make(map[hash.Hash][]TblInfoAtCommit)
+	walk := false
+	for i, h := range hashes {
+		if selected[h] {
 			continue
 		}
-
 		cm := commits[i]
-
-		// scope check
-		height, err := cm.Height()
-		if err != nil {
-			return nil, err
-		}
-
-		childCm, childHs, err := dt.scanHeightForChild(ctx, hs, height+1)
-		if err != nil {
-			return nil, err
-		}
-		if childCm == nil {
-			// non-linear commit graph, fallback to top-down scan
-			childCm, childHs, err = dt.reverseIterForChild(ctx, hs)
+		if h == headHash {
+			cm = dt.head
+			tableHash, _, err := dt.workingRoot.GetTableHash(ctx, dt.tableName)
 			if err != nil {
 				return nil, err
 			}
-		}
-
-		if childCm != nil {
-			ti, err := tableInfoForCommit(ctx, dt.tableName, childCm, childHs)
+			infos[h] = []TblInfoAtCommit{{name: "WORKING", tbl: tbl, tblHash: tableHash}}
+		} else {
+			height, err := cm.Height()
 			if err != nil {
 				return nil, err
 			}
-			cmHashToTblInfo[hs] = []TblInfoAtCommit{ti}
-			parentHashes = append(parentHashes, hs)
-			pCommits = append(pCommits, cm)
+			visible, err := dt.CommitIsInScope(ctx, height, h)
+			if err != nil {
+				return nil, err
+			}
+			if !visible {
+				continue
+			}
+			walk = true
 		}
+		selected[h] = true
+		parentHashes = append(parentHashes, h)
+		parents = append(parents, cm)
 	}
-
 	if len(parentHashes) == 0 {
 		return sql.PartitionsToPartitionIter(), nil
 	}
-
+	if walk {
+		iter := doltdb.CommitItrForRoots[*sql.Context](dt.ddb, dt.head)
+		for {
+			childHash, opt, _, _, err := iter.Next(ctx)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			child, ok := opt.ToCommit()
+			if !ok {
+				return nil, doltdb.ErrGhostCommitRuntimeFailure
+			}
+			ph, err := child.ParentHashes(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var info TblInfoAtCommit
+			loaded := false
+			for _, parent := range ph {
+				if !selected[parent] {
+					continue
+				}
+				if !loaded {
+					info, err = tableInfoForCommit(ctx, dt.tableName, child, childHash)
+					if err != nil {
+						return nil, err
+					}
+					loaded = true
+				}
+				infos[parent] = append(infos[parent], info)
+			}
+		}
+	}
 	sf, err := SelectFuncForFilters(ctx, dt.partitionFilters)
 	if err != nil {
 		return nil, err
 	}
-
-	cmItr := doltdb.NewCommitSliceIter[*sql.Context](pCommits, parentHashes)
-
-	return &DiffPartitions{
-		tblName:         dt.tableName,
-		cmItr:           cmItr,
-		cmHashToTblInfo: cmHashToTblInfo,
-		selectFunc:      sf,
-		toSch:           dt.targetSch,
-		fromSch:         dt.targetSch,
-	}, nil
-}
-
-// scanHeightForChild searches for a child commit that references a target parent hash
-// at a specific height. This is an optimization for the common case where a parent and
-// its child are one level apart, and there is no branching that creates the potential
-// for a child higher in the graph.
-func (dt *DiffTable) scanHeightForChild(ctx *sql.Context, parent hash.Hash, height uint64) (*doltdb.Commit, hash.Hash, error) {
-	a, err := dt.HeadAncestry(ctx)
-	if err != nil {
-		return nil, hash.Hash{}, err
-	}
-	iter, err := a.IterHeight(ctx, height)
-	if err != nil {
-		return nil, hash.Hash{}, err
-	}
-	var childHs hash.Hash
-	var childCm *doltdb.Commit
-	var cnt int
-	for {
-		k, _, err := iter.Next(ctx)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, hash.Hash{}, err
-		}
-		cnt++
-		if cnt > 1 {
-			return nil, hash.Hash{}, nil
-		}
-
-		c, err := doltdb.HashToCommit(ctx, dt.ddb.ValueReadWriter(), dt.ddb.NodeStore(), k.Addr())
-		phs, err := c.ParentHashes(ctx)
-		if err != nil {
-			return nil, hash.Hash{}, err
-		}
-		for _, ph := range phs {
-			if ph == parent {
-				childCm = c
-				childHs = k.Addr()
-				break
-			}
-		}
-	}
-	return childCm, childHs, nil
-}
-
-// reverseIterForChild finds the commit with the largest height that
-// is a child of the |parent| hash, or nil if no commit is found.
-func (dt *DiffTable) reverseIterForChild(ctx *sql.Context, parent hash.Hash) (*doltdb.Commit, hash.Hash, error) {
-	iter := doltdb.CommitItrForRoots[*sql.Context](dt.ddb, dt.head)
-	for {
-		childHs, optCmt, _, _, err := iter.Next(ctx)
-		if errors.Is(err, io.EOF) {
-			return nil, hash.Hash{}, nil
-		} else if err != nil {
-			return nil, hash.Hash{}, err
-		}
-
-		childCm, ok := optCmt.ToCommit()
-		if !ok {
-			// Should have been caught above from the Next() call on the iter. This is a runtime error.
-			return nil, hash.Hash{}, doltdb.ErrGhostCommitRuntimeFailure
-		}
-
-		phs, err := childCm.ParentHashes(ctx)
-		if err != nil {
-			return nil, hash.Hash{}, err
-		}
-		for _, ph := range phs {
-			if ph == parent {
-				return childCm, childHs, nil
-			}
-		}
-	}
+	return &DiffPartitions{tblName: dt.tableName, cmItr: doltdb.NewCommitSliceIter[*sql.Context](parents, parentHashes), cmHashToTblInfo: infos, selectFunc: sf, toSch: dt.targetSch, fromSch: dt.targetSch}, nil
 }
 
 func tableInfoForCommit(ctx *sql.Context, tableName doltdb.TableName, cm *doltdb.Commit, hs hash.Hash) (TblInfoAtCommit, error) {
