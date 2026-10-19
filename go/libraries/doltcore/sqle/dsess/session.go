@@ -1106,22 +1106,6 @@ func (d *DoltSession) CreateSavepoint(ctx *sql.Context, tx sql.Transaction, save
 	}
 
 	roots := make(map[string]doltdb.RootValue)
-	for _, db := range d.provider.DoltDatabases() {
-		// TODO: See TODO in CreateTransaction about needing to skip clusterDatabase and UserSpaceDatabases here :-/. (aaron@, 2025/03)
-		ddb := db.DbData().Ddb
-		if ddb != nil {
-			branchState, ok, err := d.lookupDbState(ctx, db.Name())
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("session state for database %s not found", db.Name())
-			}
-			if branchState.WorkingSet() != nil {
-				roots[strings.ToLower(branchState.RevisionDbName())] = branchState.WorkingSet().WorkingRoot()
-			}
-		}
-	}
 
 	// A physical database can have several branch states in this session.
 	dirtyBranches := make(map[string]bool)

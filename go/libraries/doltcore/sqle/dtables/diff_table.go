@@ -187,8 +187,8 @@ func (dt *DiffTable) PartitionRanges(ctx *sql.Context, ranges []prolly.Range) (s
 		return nil, err
 	}
 
-	cmHashToTblInfo := make(map[hash.Hash]TblInfoAtCommit)
-	cmHashToTblInfo[cmHash] = TblInfoAtCommit{name: "WORKING", tbl: table, tblHash: wrTblHash}
+	cmHashToTblInfo := make(map[hash.Hash][]TblInfoAtCommit)
+	cmHashToTblInfo[cmHash] = []TblInfoAtCommit{{name: "WORKING", tbl: table, tblHash: wrTblHash}}
 
 	err = cmItr.Reset(ctx)
 	if err != nil {
@@ -196,6 +196,7 @@ func (dt *DiffTable) PartitionRanges(ctx *sql.Context, ranges []prolly.Range) (s
 	}
 
 	return &DiffPartitions{
+		walkParents:     true,
 		tblName:         dt.tableName,
 		cmItr:           cmItr,
 		cmHashToTblInfo: cmHashToTblInfo,
@@ -292,7 +293,7 @@ func (dt *DiffTable) fromCommitLookupPartitions(ctx *sql.Context, hashes []hash.
 	}
 
 	var parentHashes []hash.Hash
-	cmHashToTblInfo := make(map[hash.Hash]TblInfoAtCommit)
+	cmHashToTblInfo := make(map[hash.Hash][]TblInfoAtCommit)
 	var pCommits []*doltdb.Commit
 	for i, hs := range hashes {
 		headHash, err := dt.head.HashOf()
@@ -308,7 +309,7 @@ func (dt *DiffTable) fromCommitLookupPartitions(ctx *sql.Context, hashes []hash.
 				return nil, err
 			}
 			toCmInfo := TblInfoAtCommit{name: "WORKING", tbl: tbl, tblHash: wrTblHash}
-			cmHashToTblInfo[hs] = toCmInfo
+			cmHashToTblInfo[hs] = []TblInfoAtCommit{toCmInfo}
 			parentHashes = append(parentHashes, hs)
 			pCommits = append(pCommits, dt.head)
 			continue
@@ -339,7 +340,7 @@ func (dt *DiffTable) fromCommitLookupPartitions(ctx *sql.Context, hashes []hash.
 			if err != nil {
 				return nil, err
 			}
-			cmHashToTblInfo[hs] = ti
+			cmHashToTblInfo[hs] = []TblInfoAtCommit{ti}
 			parentHashes = append(parentHashes, hs)
 			pCommits = append(pCommits, cm)
 		}
@@ -486,7 +487,8 @@ func (dt *DiffTable) toCommitLookupPartitions(ctx *sql.Context, hashes []hash.Ha
 	}
 
 	var parentHashes []hash.Hash
-	cmHashToTblInfo := make(map[hash.Hash]TblInfoAtCommit)
+	seenParents := make(map[hash.Hash]bool)
+	cmHashToTblInfo := make(map[hash.Hash][]TblInfoAtCommit)
 	var pCommits []*doltdb.Commit
 	for i, hs := range hashes {
 		cm := commits[i]
@@ -499,7 +501,7 @@ func (dt *DiffTable) toCommitLookupPartitions(ctx *sql.Context, hashes []hash.Ha
 			}
 
 			toCmInfo = TblInfoAtCommit{name: "WORKING", tbl: t, tblHash: wrTblHash}
-			cmHashToTblInfo[hs] = toCmInfo
+			cmHashToTblInfo[hs] = []TblInfoAtCommit{toCmInfo}
 			parentHashes = append(parentHashes, hs)
 			pCommits = append(pCommits, dt.head)
 			continue
@@ -541,11 +543,13 @@ func (dt *DiffTable) toCommitLookupPartitions(ctx *sql.Context, hashes []hash.Ha
 				return nil, doltdb.ErrGhostCommitEncountered
 			}
 
-			cmHashToTblInfo[pj] = toCmInfo
-			cmHashToTblInfo[pj] = ti
-			pCommits = append(pCommits, pc)
+			cmHashToTblInfo[pj] = append(cmHashToTblInfo[pj], ti)
+			if !seenParents[pj] {
+				seenParents[pj] = true
+				parentHashes = append(parentHashes, pj)
+				pCommits = append(pCommits, pc)
+			}
 		}
-		parentHashes = append(parentHashes, ph...)
 	}
 
 	if len(parentHashes) == 0 {
@@ -729,68 +733,89 @@ type DiffPartitions struct {
 	cmItr           doltdb.CommitItr[*sql.Context]
 	toSch           schema.Schema
 	fromSch         schema.Schema
-	cmHashToTblInfo map[hash.Hash]TblInfoAtCommit
+	cmHashToTblInfo map[hash.Hash][]TblInfoAtCommit
 	selectFunc      partitionSelectFunc
 	tblName         doltdb.TableName
 	ranges          []prolly.Range
 	stopNext        bool
+	walkParents     bool
+	pending         []*DiffPartition
 }
 
-// processCommit is called in a commit iteration loop. Adds partitions when it finds a commit and its parent that have
-// different values for the hash of the table being looked at.
-func (dps *DiffPartitions) processCommit(ctx *sql.Context, cmHash hash.Hash, cm *doltdb.Commit, root doltdb.RootValue, tbl *doltdb.Table) (*DiffPartition, error) {
+// processCommit retains an independent partition for every child-parent edge.
+// Commit iteration may visit a parent before another side of a merge, so a
+// parent-keyed map cannot carry full-scan child state between visits.
+func (dps *DiffPartitions) processCommit(ctx *sql.Context, cmHash hash.Hash, cm *doltdb.Commit, root doltdb.RootValue, tbl *doltdb.Table) ([]*DiffPartition, error) {
 	tblHash, _, err := root.GetTableHash(ctx, dps.tblName)
-
 	if err != nil {
 		return nil, err
 	}
-
-	toInfoForCommit := dps.cmHashToTblInfo[cmHash]
-	cmHashStr := cmHash.String()
 	meta, err := cm.GetCommitMeta(ctx)
-
 	if err != nil {
 		return nil, err
 	}
-
 	ts := types.Timestamp(meta.Committer.Date.Time())
-
-	var nextPartition *DiffPartition
-	if tblHash != toInfoForCommit.tblHash {
-		partition := DiffPartition{
-			to:       toInfoForCommit.tbl,
-			from:     tbl,
-			toName:   toInfoForCommit.name,
-			fromName: cmHashStr,
-			toDate:   toInfoForCommit.date,
-			fromDate: &ts,
-			fromSch:  dps.fromSch,
-			toSch:    dps.toSch,
-			ranges:   dps.ranges,
+	current := TblInfoAtCommit{name: cmHash.String(), date: &ts, tbl: tbl, tblHash: tblHash}
+	var partitions []*DiffPartition
+	appendPair := func(to, from TblInfoAtCommit) error {
+		if to.tblHash == from.tblHash {
+			return nil
 		}
+		partition := DiffPartition{to: to.tbl, from: from.tbl, toName: to.name, fromName: from.name, toDate: to.date, fromDate: from.date, fromSch: dps.fromSch, toSch: dps.toSch, ranges: dps.ranges}
 		selected, err := dps.selectFunc(ctx, partition)
-
+		if err != nil {
+			return err
+		}
+		if selected {
+			partitions = append(partitions, &partition)
+		}
+		return nil
+	}
+	for _, to := range dps.cmHashToTblInfo[cmHash] {
+		if err := appendPair(to, current); err != nil {
+			return nil, err
+		}
+	}
+	delete(dps.cmHashToTblInfo, cmHash)
+	if !dps.walkParents {
+		return partitions, nil
+	}
+	hashes, err := cm.ParentHashes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i, h := range hashes {
+		optional, err := cm.GetParent(ctx, i)
 		if err != nil {
 			return nil, err
 		}
-
-		if selected {
-			nextPartition = &partition
+		parent, ok := optional.ToCommit()
+		if !ok {
+			return nil, doltdb.ErrGhostCommitEncountered
+		}
+		fromRoot, err := parent.GetRootValue(ctx)
+		if err != nil {
+			return nil, err
+		}
+		fromTable, _, _, err := doltdb.GetTableInsensitive(ctx, fromRoot, dps.tblName)
+		if err != nil {
+			return nil, err
+		}
+		fromHash, _, err := fromRoot.GetTableHash(ctx, dps.tblName)
+		if err != nil {
+			return nil, err
+		}
+		fromMeta, err := parent.GetCommitMeta(ctx)
+		if err != nil {
+			return nil, err
+		}
+		fromTime := types.Timestamp(fromMeta.Committer.Date.Time())
+		from := TblInfoAtCommit{name: h.String(), date: &fromTime, tbl: fromTable, tblHash: fromHash}
+		if err := appendPair(current, from); err != nil {
+			return nil, err
 		}
 	}
-
-	newInfo := TblInfoAtCommit{name: cmHashStr, date: &ts, tbl: tbl, tblHash: tblHash}
-	parentHashes, err := cm.ParentHashes(ctx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	for _, h := range parentHashes {
-		dps.cmHashToTblInfo[h] = newInfo
-	}
-
-	return nextPartition, nil
+	return partitions, nil
 }
 
 func (dps *DiffPartitions) Next(ctx *sql.Context) (sql.Partition, error) {
@@ -799,35 +824,40 @@ func (dps *DiffPartitions) Next(ctx *sql.Context) (sql.Partition, error) {
 	}
 
 	for {
-		cmHash, optCmt, _, _, err := dps.cmItr.Next(ctx)
-		if err != nil {
-			return nil, err
+		if len(dps.pending) == 0 {
+			cmHash, optCmt, _, _, err := dps.cmItr.Next(ctx)
+			if err != nil {
+				return nil, err
+			}
+			cm, ok := optCmt.ToCommit()
+			if !ok {
+				// Should have been caught above from the Next() call on the iter. This is a runtime error.
+				return nil, doltdb.ErrGhostCommitRuntimeFailure
+			}
+
+			root, err := cm.GetRootValue(ctx)
+
+			if err != nil {
+				return nil, err
+			}
+
+			tbl, _, _, err := doltdb.GetTableInsensitive(ctx, root, dps.tblName)
+
+			if err != nil {
+				return nil, err
+			}
+
+			partitions, err := dps.processCommit(ctx, cmHash, cm, root, tbl)
+
+			if err != nil {
+				return nil, err
+			}
+
+			dps.pending = partitions
 		}
-		cm, ok := optCmt.ToCommit()
-		if !ok {
-			// Should have been caught above from the Next() call on the iter. This is a runtime error.
-			return nil, doltdb.ErrGhostCommitRuntimeFailure
-		}
-
-		root, err := cm.GetRootValue(ctx)
-
-		if err != nil {
-			return nil, err
-		}
-
-		tbl, _, _, err := doltdb.GetTableInsensitive(ctx, root, dps.tblName)
-
-		if err != nil {
-			return nil, err
-		}
-
-		next, err := dps.processCommit(ctx, cmHash, cm, root, tbl)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if next != nil {
+		if len(dps.pending) > 0 {
+			next := dps.pending[0]
+			dps.pending = dps.pending[1:]
 			// If we can't diff this commit with its parent, don't traverse any lower
 			simpleDiff, fuzzyDiff, err := next.isDiffablePartition(ctx)
 			if err != nil {
