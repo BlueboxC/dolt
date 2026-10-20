@@ -74,6 +74,8 @@ github.com/BlueboxC/go-mysql-server v0.0.0-20261020154026-80039190c7cb h1:3C9itX
 github.com/BlueboxC/go-mysql-server v0.0.0-20261020154026-80039190c7cb/go.mod h1:HRYEDIMEmcFhEjdrRnEwCiWFbdTMUxyjEI9Swn2Pmvc=
 github.com/BlueboxC/go-mysql-server v0.0.0-20261020203840-6a5992f57d07 h1:aTpi+rKARB+Vhy3mcEovNtzAmwLkS8sqPr5yDvN/bEU=
 github.com/BlueboxC/go-mysql-server v0.0.0-20261020203840-6a5992f57d07/go.mod h1:HRYEDIMEmcFhEjdrRnEwCiWFbdTMUxyjEI9Swn2Pmvc=
+github.com/BlueboxC/go-mysql-server v0.0.0-20261020211445-e43b463224d6 h1:TYRfXrLuRzyZ+fdhF1rZ00pf/ZpSx9ji94ByEXqA2FI=
+github.com/BlueboxC/go-mysql-server v0.0.0-20261020211445-e43b463224d6/go.mod h1:HRYEDIMEmcFhEjdrRnEwCiWFbdTMUxyjEI9Swn2Pmvc=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.1.0 h1:ksErzDEI1khOiGPgpwuI7x2ebx/uXQNw7xJpn9Eq1+I=
 github.com/BurntSushi/toml v1.1.0/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=

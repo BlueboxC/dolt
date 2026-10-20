@@ -15,8 +15,10 @@
 package message
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 
 	fb "github.com/dolthub/flatbuffers/v23/go"
@@ -160,6 +162,42 @@ func walkMergeArtifactAddresses(ctx context.Context, msg serial.Message, cb func
 		addr := hash.New(arr2[o : o+addrSize])
 		if err := cb(ctx, addr); err != nil {
 			return err
+		}
+	}
+
+	// Virtual ancestors are not branch parents. Keep their conflict-base objects
+	// reachable through the existing metadata instead of relying on branch history.
+	if ma.TreeLevel() == 0 {
+		keys, values, _, count, err := getArtifactMapKeysAndValues(msg)
+		if err != nil {
+			return err
+		}
+		descriptor := val.NewTupleDescriptor(val.Type{Enc: val.JSONEnc})
+		for i := 0; i < int(count); i++ {
+			key := val.Tuple(keys.GetItem(i, msg))
+			if len(key) < 2 || key.Count() < 3 {
+				return fmt.Errorf("invalid artifact key during address walk")
+			}
+			// Mirrors ArtifactTypeConflict and the source-PK/commit/type/info key layout.
+			artifactType := key.GetField(key.Count() - 2)
+			if len(artifactType) != 1 || artifactType[0] != 1 {
+				continue
+			}
+			metadata, ok := descriptor.GetJSON(0, val.Tuple(values.GetItem(i, msg)))
+			if !ok || !bytes.Contains(metadata, []byte(`"bc"`)) {
+				continue
+			}
+			var conflict struct {
+				Base hash.Hash `json:"bc"`
+			}
+			if err = json.Unmarshal(metadata, &conflict); err != nil {
+				return fmt.Errorf("invalid artifact metadata during address walk: %w", err)
+			}
+			if conflict.Base != (hash.Hash{}) {
+				if err = cb(ctx, conflict.Base); err != nil {
+					return err
+				}
+			}
 		}
 	}
 

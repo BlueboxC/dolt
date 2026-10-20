@@ -431,7 +431,18 @@ func resolveCommitStrings(ctx *sql.Context, fromRef, toRef, dotRef interface{}, 
 				return "", "", err
 			}
 
-			mergeBase, err := merge.MergeBase(ctx, rightCm, leftCm)
+			state, ok, err := sess.LookupDbState(ctx, db.Name())
+			if err != nil {
+				return "", "", err
+			}
+			if !ok {
+				return "", "", sql.ErrDatabaseNotFound.New(db.Name())
+			}
+			base, err := merge.MergeBaseCommit(ctx, db.GetTableResolver(), rightCm, leftCm, state.EditOpts())
+			if err != nil {
+				return "", "", err
+			}
+			mergeBase, err := base.HashOf()
 			if err != nil {
 				return "", "", err
 			}

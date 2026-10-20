@@ -23,4 +23,12 @@ The license remains Apache-2.0. This fork is not an upstream release and does no
 
 The standalone CLI, external server and upstream release number remain distinct from Beads' embedded dependency tuple. Installing a new embedded tuple requires a fresh matched backup/readback; source tests alone are not live-database qualification.
 
-Pinned SQL/catalog candidate: [`6a5992f57d07ea00f2f190be98f74257146abd67`](https://github.com/BlueboxC/go-mysql-server/commit/6a5992f57d07ea00f2f190be98f74257146abd67). Both independent consumer replacements remain required.
+Both independent consumer replacements remain required. The exact analyzer revision is recorded in go.mod.
+
+## Merge-base and ancestor-key corrections
+
+- [#12012](https://github.com/dolthub/dolt/issues/12012): when both branches select the same new primary-key tags, order and types, project the common ancestor into that key layout. Require unchanged key-column types, existing columns and unique non-NULL ancestor keys; retain ordinary secondary indexes and foreign-key constraints. Materialize an immutable virtual ancestor for conflict evidence. One-sided or incompatible keys, virtual columns, specialized/partial ancestor indexes and pre-existing ancestor artifacts keep the existing refusal. This is not arbitrary primary-key reconciliation.
+- [#12050](https://github.com/dolthub/dolt/issues/12050): recursively combine all best common ancestors in stable hash order for merges and the shared three-dot diff/stat/summary resolver. Preserve branch/working/tag references and scalar merge-base APIs. Conflicting virtual bases refuse explicitly; automatic conflict-marker reconciliation is not implemented. Queries may create deterministic unreferenced objects, so logical reference preservation is not a claim of zero physical writes.
+- Conflict metadata already names its base commit. Address traversal now retains that reference for garbage collection and native backup, including virtual ancestors not reachable from branch history. Existing storage serialization is unchanged. Older binaries do not know this additional reachability rule: use matched data/engine preimages for rollback after feature writes.
+
+Qualification covers normal/prepared merges in both directions and squash mode, string/composite keys, secondary indexes, foreign keys, collision/NULL/incompatible-key refusals, two and three best ancestors, conflicting bases, unchanged logical references, and persisted conflict evidence through full GC, backup/restore and cold reopening. Contributor-provided repros are retained as regression scripts; these additions are independently implemented in this fork.

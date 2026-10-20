@@ -249,6 +249,10 @@ func (rm *RootMerger) MergeTable(
 		return &MergedResult{table: finished, rootObj: finishedRootObj}, stats, err
 	}
 
+	if err := tm.rekeyAncestor(ctx); err != nil {
+		return nil, nil, err
+	}
+
 	// Calculate a merge of the schemas, but don't apply it yet
 	mergeSch, schConflicts, mergeInfo, diffInfo, err := tm.SchemaMerge(ctx, tblName)
 	if err != nil {

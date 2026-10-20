@@ -54,15 +54,14 @@ const (
 )
 
 func MergeCommits(ctx *sql.Context, tableResolver doltdb.TableResolver, commit, mergeCommit *doltdb.Commit, opts editor.Options) (*Result, error) {
-	optCmt, err := doltdb.GetCommitAncestor(ctx, commit, mergeCommit)
+	ancestor, err := MergeBaseCommit(ctx, tableResolver, commit, mergeCommit, opts)
 	if err != nil {
 		return nil, err
 	}
-	ancCommit, ok := optCmt.ToCommit()
-	if !ok {
-		// Ancestor commit should have been resolved before getting this far.
-		return nil, doltdb.ErrGhostCommitRuntimeFailure
-	}
+	return mergeCommitsAtBase(ctx, tableResolver, commit, mergeCommit, ancestor, opts)
+}
+
+func mergeCommitsAtBase(ctx *sql.Context, tableResolver doltdb.TableResolver, commit, mergeCommit, ancCommit *doltdb.Commit, opts editor.Options) (*Result, error) {
 
 	ourRoot, err := commit.GetRootValue(ctx)
 	if err != nil {
