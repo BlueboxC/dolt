@@ -19,12 +19,14 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - Diff-history scans and multi-hash lookups retain each distinct child-parent edge, independently of traversal order; selected commits remain ancestry-scoped.
 - Savepoints snapshot the session's branch states without enumerating unrelated provider databases. Preserve rollback for branches first edited after the savepoint and retained dirty flags.
 
+- SQL view projections retain a distinct column identity even for aliases unavailable to sibling projections. Pin the reviewed analyzer in go.mod and require consumer main modules to repeat the replacement; dependency replacements are not transitive.
+
 ## Work Guidance
 
 Keep the fork limited to the verified engine corrections described in FORK.md. Beads separately qualifies its complete dependency tuple and native backup compatibility before installation.
 
 ## Verification
 
-From go/, run the affected DiffTableFunction, DiffStatTableFunction, DiffSummaryTableFunction and UnscopedDiffSystemTable engine tests, including prepared variants. Use disposable databases. Report test-only dependency differences and environment failures separately from engine failures.
+From go/, run the affected DiffTableFunction, DiffStatTableFunction, DiffSummaryTableFunction and UnscopedDiffSystemTable engine tests, including prepared variants. Run view queries in normal and prepared mode and retain the current MIN/MAX and MOD regressions. Use disposable databases. Report test-only dependency differences and environment failures separately from engine failures.
 
 ## Child DOX Index
