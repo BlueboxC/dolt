@@ -490,3 +490,68 @@ func TestCloneDatabaseDuplicateNameRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, sql.ErrDatabaseExists.Is(err))
 }
+
+// TestDroppedDatabaseReportsNotFound covers a Database value that was obtained before the database was dropped, as
+// happens when information_schema enumerates databases while another session runs DROP DATABASE. Visiting such a
+// Database must report that it was not found, rather than an internal error.
+type triggerLookupFailure struct {
+	dsess.DoltDatabaseProvider
+	failure error
+}
+
+func (p triggerLookupFailure) SessionDatabase(*sql.Context, string) (dsess.SqlDatabase, bool, error) {
+	return nil, false, p.failure
+}
+
+func TestDroppedDatabaseReportsNotFound(t *testing.T) {
+	ctx := context.Background()
+	dEnv := dtestutils.CreateTestEnvForLocalFilesystem()
+	db, err := NewDatabase(ctx, "dolt", dEnv.DbData(ctx), editor.Options{})
+	require.NoError(t, err)
+	engine, sqlCtx, err := NewTestEngine(dEnv, ctx, db)
+	require.NoError(t, err)
+	sess := dsess.DSessFromSess(sqlCtx.Session)
+	pro := sess.Provider().(*DoltDatabaseProvider)
+
+	require.NoError(t, ExecuteSqlOnEngine(sqlCtx, engine, "CREATE DATABASE mytest;"))
+	stale, ok, err := pro.SessionDatabase(sqlCtx, "mytest")
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = stale.GetRoot(sqlCtx)
+	require.NoError(t, err)
+
+	require.NoError(t, ExecuteSqlOnEngine(sqlCtx, engine, "DROP DATABASE mytest;"))
+
+	t.Run("GetRoot", func(t *testing.T) {
+		_, err := stale.GetRoot(sqlCtx)
+		require.Error(t, err)
+		assert.True(t, sql.ErrDatabaseNotFound.Is(err), "unexpected error: %v", err)
+	})
+
+	t.Run("GetWorkingSet", func(t *testing.T) {
+		_, err := stale.(Database).GetWorkingSet(sqlCtx)
+		require.Error(t, err)
+		assert.True(t, sql.ErrDatabaseNotFound.Is(err), "unexpected error: %v", err)
+	})
+
+	t.Run("GetTriggers", func(t *testing.T) {
+		_, err := stale.(Database).GetTriggers(sqlCtx)
+		require.Error(t, err)
+		assert.True(t, sql.ErrDatabaseNotFound.Is(err), "unexpected error: %v", err)
+	})
+
+	t.Run("GetTriggers preserves a real lookup error", func(t *testing.T) {
+		failure := sql.ErrInvalidType.New("metadata sentinel")
+		brokenSession := dsess.DefaultSession(triggerLookupFailure{DoltDatabaseProvider: pro, failure: failure}, nil)
+		brokenContext := sql.NewContext(ctx, sql.WithSession(brokenSession))
+		_, err := stale.(Database).GetTriggers(brokenContext)
+		require.Error(t, err)
+		assert.True(t, sql.ErrInvalidType.Is(err), "unexpected error: %v", err)
+	})
+
+	t.Run("LookupDbState", func(t *testing.T) {
+		_, ok, err := sess.LookupDbState(sqlCtx, "mytest")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+}

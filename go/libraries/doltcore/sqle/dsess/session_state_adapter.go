@@ -181,6 +181,7 @@ func (s SessionStateAdapter) RemoveRemote(_ context.Context, name string) error 
 		return env.ErrRemoteNotFound
 	}
 	s.remotes.Delete(remote.Name)
+	env.UnsetRemoteUpstream(s.branches, remote.Name)
 
 	fs, err := s.session.Provider().FileSystemForDatabase(s.dbName)
 	if err != nil {
@@ -197,7 +198,7 @@ func (s SessionStateAdapter) RemoveRemote(_ context.Context, name string) error 
 		// sanity check
 		return env.ErrRemoteNotFound
 	}
-	repoState.Remotes.Delete(name)
+	repoState.RemoveRemote(remote)
 	return repoState.Save(fs)
 }
 

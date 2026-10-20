@@ -21,6 +21,10 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - SQL view projections retain a distinct column identity even for aliases unavailable to sibling projections. Pin the reviewed analyzer in go.mod and require consumer main modules to repeat the replacement; dependency replacements are not transitive.
 
+- Catalog enumeration skips only typed database disappearance; failed creation cleans up its partial provider registration. Preserve real root/trigger failures and the current session database.
+- CHECK references are case-insensitive; remote removal clears only matching tracking entries in both persistent and SQL session state.
+- KV lookup equality skips NULL keys without changing NULL-safe equality or outer NULL extension.
+
 ## Work Guidance
 
 Keep the fork limited to the verified engine corrections described in FORK.md. Beads separately qualifies its complete dependency tuple and native backup compatibility before installation.

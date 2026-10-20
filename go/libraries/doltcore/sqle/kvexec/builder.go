@@ -166,6 +166,7 @@ func (b *Builder) newTupleLookupKvIter(
 		dstIter.InputKeyDesc(),
 		ita.Expressions(),
 		ita.Index().ColumnExpressionTypes(ctx),
+		ita.NullMask(),
 		srcMap.NodeStore(),
 	)
 	if err != nil || !keyLookupMapper.valid(ctx) {
