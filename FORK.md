@@ -1,6 +1,6 @@
 # Dolt engine fixes for Beads Continuity
 
-This dependency fork starts from official Dolt v2.5.0 at `ea6ad5e1b7731e0c0df5a3252fef8e32dde4d26e`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads.
+This dependency fork starts from official Dolt v2.5.1 at `d1f8f8e763864d26e4b0753647c97f283f06e404`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads.
 
 - [Dolt #12013](https://github.com/dolthub/dolt/issues/12013): adapt elianddb's [PR #12017](https://github.com/dolthub/dolt/pull/12017), retaining its regression cases. Incompatible primary-key changes return an explicit error instead of silently pairing unrelated rows. Adapt the key comparison to 2.5.0's `ComparePrimaryKeys`; retain compatible physical-key/type changes and the existing drop/recreate handling. Preserve 2.5.0's crossed-column-tag refusal in the physical-descriptor fallback, with forward/reverse regression cases. Historical system-table scans retain their warning-and-stop contract.
 - [Dolt #12104](https://github.com/dolthub/dolt/issues/12104): filter explicit history commits with the engine's existing ancestry API before constructing their row iterator. Both indexed and filter shortcuts use that iterator; full scans, current-head rows, merges and explicit revision comparisons keep their own semantics.
@@ -32,3 +32,11 @@ Both independent consumer replacements remain required. The exact analyzer revis
 - Conflict metadata already names its base commit. Address traversal now retains that reference for garbage collection and native backup, including virtual ancestors not reachable from branch history. Existing storage serialization is unchanged. Older binaries do not know this additional reachability rule: use matched data/engine preimages for rollback after feature writes.
 
 Qualification covers normal/prepared merges in both directions and squash mode, string/composite keys, secondary indexes, foreign keys, collision/NULL/incompatible-key refusals, two and three best ancestors, conflicting bases, unchanged logical references, and persisted conflict evidence through full GC, backup/restore and cold reopening. Contributor-provided repros are retained as regression scripts; these additions are independently implemented in this fork.
+
+
+## Branch-log and stable-base follow-up
+
+- [#12157](https://github.com/dolthub/dolt/issues/12157), reported by macneale4: honor `DOLT_LOG('--all')` by selecting every local branch head and using the existing history walker. Keep shared ancestors deduplicated, explicit revisions, two/three-dot ranges, `--not`, table and merge filters, and execution-time prepared options. Ordinary `DOLT_LOG()` still follows the current session head.
+- The v2.5.1 base adds native log-table projection and the official file-locks update; the already-carried mixed-case CHECK correction is retained once. The session settings hook leaves MySQL behavior unchanged and does not qualify a DoltgreSQL integration.
+- Raise the standalone module's `klauspost/compress` floor to 1.18.7; Beads already selected that version independently.
+- [#12160](https://github.com/dolthub/dolt/issues/12160) is covered by the existing KV lookup NULL correction from #12100 case 03. Its exact reproduction and normal/prepared controls pass on the previously installed tuple; no duplicate analyzer patch is added.

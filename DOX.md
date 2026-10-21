@@ -10,7 +10,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 ## Local Contracts
 
-- Base engine changes on the official v2.5.0 commit ea6ad5e1b7731e0c0df5a3252fef8e32dde4d26e. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes.
+- Base engine changes on the official v2.5.1 commit d1f8f8e763864d26e4b0753647c97f283f06e404. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes.
 - Keep storage corrections in Dolt. Do not introduce Beads-specific schema, tasks, orchestration, configuration or private project data.
 - Preserve upstream contributor tests and attribution. Remove a carried patch only after the corresponding upstream behavior passes its regression.
 - Reject incompatible explicit-revision primary-key diffs instead of returning mispaired rows. Historical system-table scans retain warning-and-stop behavior. Preserve supported same-key and physically compatible type changes.
@@ -28,6 +28,8 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - Recursive merge bases combine every best common ancestor deterministically. Conflicting bases refuse explicitly. Three-dot diff APIs share this resolver without changing branch, working-set or tag references; immutable virtual objects may be materialized.
 - Artifact address traversal retains virtual conflict-base commits during garbage collection and native backup. Rollback after feature writes requires the matching retained data and engine, rather than a binary-only downgrade.
 
+- DOLT_LOG --all traverses all local branch heads through the existing deduplicating history walker. Preserve explicit revision/range exclusions, table filters, prepared options and ordinary HEAD-only reads.
+
 ## Work Guidance
 
 Keep the fork limited to the verified engine corrections described in FORK.md. Beads separately qualifies its complete dependency tuple and native backup compatibility before installation.
@@ -39,3 +41,4 @@ From go/, run the affected DiffTableFunction, DiffStatTableFunction, DiffSummary
 Run ForkMergeCorrections in normal/prepared modes, merge and artifact traversal packages, and a persisted conflict through full garbage collection, native backup/restore and a cold reopen.
 
 ## Child DOX Index
+

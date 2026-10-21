@@ -41,6 +41,7 @@ const logTableDefaultRowCount = 10
 // The schema is fixed; the parents and signature columns are populated only when --parents
 // and --show-signature are passed.
 type LogTableFunctionArgs struct {
+	allBranches     bool
 	revisionStrs    []string
 	notRevisionStrs []string
 	tableNames      []string
@@ -139,6 +140,7 @@ func (ltfa *LogTableFunctionArgs) addOptions(ctx *sql.Context, expressions []sql
 
 	ltfa.minParents = minParents
 
+	ltfa.allBranches = apr.Contains(cli.AllFlag)
 	ltfa.showParents = apr.Contains(cli.ParentsFlag)
 	ltfa.showSignature = apr.Contains(cli.ShowSignatureFlag)
 
@@ -469,7 +471,7 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 			return false, nil
 		}
 
-		return commit.NumParents() >= ltf.minParents, nil
+		return commit.NumParents() >= args.minParents, nil
 	}
 
 	cHashToRefs, err := dtables.GetCommitHashToRefs(ctx, sqledb.DbData().Ddb, args.decoration)
@@ -478,7 +480,7 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 	}
 
 	var commits []*doltdb.Commit
-	if len(revisionValStrs) == 0 {
+	if len(revisionValStrs) == 0 && !args.allBranches {
 		// If no revisions given, use session head
 		commit, err = sess.GetHeadCommit(ctx, sqledb.RevisionQualifiedName())
 		if err != nil {
@@ -507,11 +509,25 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 			return nil, err
 		}
 		commit, ok = optCmt.ToCommit()
-		if err != nil {
+		if !ok {
 			return nil, doltdb.ErrGhostCommitEncountered
 		}
 
 		commits = append(commits, commit)
+	}
+
+	if args.allBranches {
+		branches, err := sqledb.DbData().Ddb.GetBranches(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, branch := range branches {
+			branchCommit, err := sqledb.DbData().Ddb.ResolveCommitRef(ctx, branch)
+			if err != nil {
+				return nil, err
+			}
+			commits = append(commits, branchCommit)
+		}
 	}
 
 	var notCommits []*doltdb.Commit
@@ -556,14 +572,18 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 
 		notCommits = append(notCommits, mergeCommit)
 
-		return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, ltf.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+		return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
 	}
 
-	if len(revisionValStrs) <= 1 && len(notRevisionValStrs) == 0 {
-		return ltf.NewLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits[0], matchFunc, cHashToRefs, ltf.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+	if len(commits) == 0 {
+		return sql.RowsToRowIter(), nil
 	}
 
-	return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, ltf.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+	if len(commits) == 1 && len(notCommits) == 0 {
+		return ltf.NewLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits[0], matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+	}
+
+	return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
 }
 
 var _ sql.RowIter = (*logTableFunctionRowIter)(nil)
