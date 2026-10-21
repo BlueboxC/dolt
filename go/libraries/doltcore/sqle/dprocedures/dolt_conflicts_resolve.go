@@ -148,6 +148,11 @@ func resolveProllyConflicts(ctx *sql.Context, tbl *doltdb.Table, tblName doltdb.
 		}
 
 		// update row data
+		// A keyless conflict can name a row deleted by both branches.
+		// There is then no row or secondary-index entry to change.
+		if len(ourRow) == 0 && len(theirRow) == 0 {
+			continue
+		}
 		if len(theirRow) == 0 {
 			err = mutMap.Delete(ctx, cnfArt.Key)
 		} else {
