@@ -2241,6 +2241,17 @@ func (m *valueMerger) processColumn(ctx *sql.Context, i int, left, right, base v
 			return nil, false, err
 		}
 
+		// For an existing base row, an added column's implicit NULL is
+		// unchanged. A real insert still compares both complete rows.
+		if base != nil {
+			if leftVal == nil {
+				return rightVal, false, nil
+			}
+			if rightVal == nil {
+				return leftVal, false, nil
+			}
+		}
+
 		cmp, err := sqlType.Compare(ctx, leftVal, rightVal)
 		if err != nil {
 			return nil, false, err
