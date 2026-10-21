@@ -16,7 +16,6 @@ package merge
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
@@ -25,19 +24,23 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
 	"github.com/dolthub/dolt/go/store/pool"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
+	"github.com/dolthub/dolt/go/store/prolly"
 	"github.com/dolthub/dolt/go/store/val"
 )
 
 var sharePool = pool.NewBuffPool()
 
 type fulltextTable struct {
-	GMSTable *memory.Table
-	Table    *doltdb.Table
-	Sch      schema.Schema
-	SqlSch   sql.Schema
+	GMSTable   *memory.Table
+	Table      *doltdb.Table
+	Sch        schema.Schema
+	SqlSch     sql.Schema
+	rows       prolly.Map
+	edits      *prolly.MutableMap
+	pkOrdinals []int
 }
 
 var _ fulltext.EditableTable = (*fulltextTable)(nil)
@@ -61,6 +64,14 @@ func createFulltextTable(ctx *sql.Context, name string, root doltdb.RootValue) (
 		return nil, err
 	}
 
+	data, err := tbl.GetRowData(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := durable.ProllyMapFromIndex(data)
+	if err != nil {
+		return nil, err
+	}
 	gmsDb := memory.NewDatabase("gms_db")
 	gmsTable := memory.NewLocalTable(ctx, gmsDb, name, sqlSch, nil)
 	return &fulltextTable{
@@ -68,6 +79,9 @@ func createFulltextTable(ctx *sql.Context, name string, root doltdb.RootValue) (
 		Table:    tbl,
 		Sch:      sch,
 		SqlSch:   sqlSch.Schema,
+		rows: rows,
+ edits: rows.Mutate(),
+ pkOrdinals: sqlSch.PkOrdinals,
 	}, nil
 }
 
@@ -93,32 +107,36 @@ func (table *fulltextTable) Collation() sql.CollationID {
 
 // Partitions implements the interface fulltext.EditableTable.
 func (table *fulltextTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
-	return table.GMSTable.Partitions(ctx)
+	return sql.PartitionsToPartitionIter(fulltextPartition{}), nil
 }
 
 // PartitionRows implements the interface fulltext.EditableTable.
 func (table *fulltextTable) PartitionRows(ctx *sql.Context, partition sql.Partition) (sql.RowIter, error) {
-	return table.GMSTable.PartitionRows(ctx, partition)
+	iter, err := table.edits.IterAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return index.NewProllyRowIterForMap(table.Sch, table.rows, iter, nil), nil
 }
 
 // Inserter implements the interface fulltext.EditableTable.
 func (table *fulltextTable) Inserter(ctx *sql.Context) sql.RowInserter {
-	return table.GMSTable.Inserter(ctx)
+	return table
 }
 
 // Updater implements the interface fulltext.EditableTable.
 func (table *fulltextTable) Updater(ctx *sql.Context) sql.RowUpdater {
-	return table.GMSTable.Updater(ctx)
+	return table
 }
 
 // Deleter implements the interface fulltext.EditableTable.
 func (table *fulltextTable) Deleter(ctx *sql.Context) sql.RowDeleter {
-	return table.GMSTable.Deleter(ctx)
+	return table
 }
 
 // IndexedAccess implements the interface fulltext.EditableTable.
 func (table *fulltextTable) IndexedAccess(ctx *sql.Context, lookup sql.IndexLookup) sql.IndexedTable {
-	return table.GMSTable.IndexedAccess(ctx, lookup)
+	return &fulltextLookup{fulltextTable: table}
 }
 
 // GetIndexes implements the interface fulltext.EditableTable.
@@ -128,65 +146,12 @@ func (table *fulltextTable) GetIndexes(ctx *sql.Context) ([]sql.Index, error) {
 
 // PreciseMatch implements the interface fulltext.EditableTable.
 func (table *fulltextTable) PreciseMatch() bool {
-	return false
+	return true
 }
 
-// ApplyToTable writes the data from the internal GMS table to the internal Dolt table, then returns the updated Dolt
-// table. The updated Dolt table is not stored.
+// ApplyToTable materializes the pseudo-table primary map without publishing its root.
 func (table *fulltextTable) ApplyToTable(ctx *sql.Context) (*doltdb.Table, error) {
-	partIter, err := table.GMSTable.Partitions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rowIter := sql.NewTableRowIter(ctx, table.GMSTable, partIter)
-
-	idx, err := table.Table.GetRowData(ctx)
-	if err != nil {
-		return nil, err
-	}
-	m, err := durable.ProllyMapFromIndex(idx)
-	if err != nil {
-		return nil, err
-	}
-	keyDesc, valDesc := m.Descriptors()
-	keyMap, valMap := ordinalMappingsFromSchema(table.SqlSch, table.Sch)
-	mut := m.Mutate()
-	keyBld := val.NewTupleBuilder(keyDesc, m.NodeStore())
-	valBld := val.NewTupleBuilder(valDesc, m.NodeStore())
-
-	sqlRow, err := rowIter.Next(ctx)
-	for ; err == nil; sqlRow, err = rowIter.Next(ctx) {
-		for to := range keyMap {
-			from := keyMap.MapOrdinal(to)
-			if err = tree.PutField(ctx, mut.NodeStore(), keyBld, to, sqlRow[from]); err != nil {
-				return nil, err
-			}
-		}
-		k, err := keyBld.Build(ctx, sharePool)
-		if err != nil {
-			return nil, err
-		}
-
-		for to := range valMap {
-			from := valMap.MapOrdinal(to)
-			if err = tree.PutField(ctx, mut.NodeStore(), valBld, to, sqlRow[from]); err != nil {
-				return nil, err
-			}
-		}
-		v, err := valBld.Build(ctx, sharePool)
-		if err != nil {
-			return nil, err
-		}
-
-		if err = mut.Put(ctx, k, v); err != nil {
-			return nil, err
-		}
-	}
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
-
-	mapped, err := mut.Map(ctx)
+	mapped, err := table.edits.Map(ctx)
 	if err != nil {
 		return nil, err
 	}

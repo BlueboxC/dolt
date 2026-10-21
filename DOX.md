@@ -31,6 +31,10 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - DOLT_LOG --all traverses all local branch heads through the existing deduplicating history walker. Preserve explicit revision/range exclusions, table filters, prepared options and ordinary HEAD-only reads.
 
+- Conflict resolution ignores rows already deleted by both branches before touching secondary indexes; keyless Full-Text conflicts still clear their artifacts and retain search results.
+- A nullable column added to an existing ancestor row treats implicit NULL as unchanged. Preserve genuine conflicting inserts and two non-NULL edits.
+- Full-Text rebuilds use collation-aware Prolly primary maps for pseudo-table edits and count lookups. Preserve duplicates, NULLs, multiple indexes and persisted table contents; this remains a full rebuild.
+
 ## Work Guidance
 
 Keep the fork limited to the verified engine corrections described in FORK.md. Beads separately qualifies its complete dependency tuple and native backup compatibility before installation.
