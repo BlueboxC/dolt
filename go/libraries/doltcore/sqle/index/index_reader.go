@@ -792,6 +792,7 @@ func (ib *keylessIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSa
 	}
 
 	return &keylessSecondaryLookupGen{
+		nullSafe:   nullSafe,
 		pri:        pri,
 		sec:        secondary,
 		sch:        ib.idx.tableSch,

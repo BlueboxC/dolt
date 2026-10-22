@@ -58,3 +58,7 @@ The pinned analyzer must distinguish MATCH lookups from ordinary equality/NULL/r
 Dolt #12170: snapshot compressed request bytes under the journal lock with bounded read concurrency; release before scheduling caller callbacks. A deterministic slow-callback regression with an errgroup concurrency limit proves a journal writer can finish while copying is paused. Existing journal/race and full NBS tests pass. This does not claim elimination of every SQL GC pause or a new throughput guarantee.
 
 Adapted Dolt PR #12174 by reltuk (062e1e0e9c8fb2654d2423913340119ec67d92dd): validate upload body length/MD5 before publication, never replace an existing table file, refresh its pruning grace timestamp and verify chunk hashes before traversing references. Preserve Apache-2.0 attribution and the contributor’s HTTP, pruning and reference tests. Full remotesrv, file and NBS packages pass on macOS; Windows/Linux implementations are source/build checked separately, not native runtime certified here. The embedded Beads engine does not expose a remote HTTP service.
+
+## Keyless secondary reader NULL contract
+
+Adapt [PR #12171](https://github.com/dolthub/dolt/pull/12171) by angelamayxie: carry the NULL-safe equality mask into the keyless secondary iterator and reject ordinary NULL lookup keys there. A missing mask is ordinary equality. The earlier #12160 SQL fix remains in the KV mappers; this is complementary coverage of the lower reader API, verified with real Prolly primary/secondary maps and duplicate cardinality.
