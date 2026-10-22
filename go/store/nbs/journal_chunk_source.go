@@ -21,7 +21,6 @@ import (
 	"io"
 	"runtime/trace"
 	"sort"
-	"sync"
 
 	"golang.org/x/sync/errgroup"
 
@@ -110,18 +109,15 @@ func (s journalChunkSource) getMany(ctx context.Context, eg *errgroup.Group, req
 	}, keeper, stats)
 }
 
-// getManyCompressed implements chunkReader. Here we (1) synchronously check
-// the journal index for read ranges, (2) record if the source misses any
-// needed remaining chunks, (3) sort the lookups for efficient disk access,
-// and then (4) asynchronously perform reads. We release the journal read
-// lock after returning when all reads are completed, which can be after the
-// function returns.
+// getManyCompressed snapshots the requested compressed bytes under the journal
+// lock, then schedules callbacks after releasing it. Callback work (including
+// GC copying) must not block journal writers. Reads use bounded parallelism;
+// buffers are bounded by this caller's existing request batch.
 func (s journalChunkSource) getManyCompressed(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, ToChunker), keeper keeperF, stats *Stats) (bool, gcBehavior, error) {
 	defer trace.StartRegion(ctx, "journalChunkSource.getManyCompressed").End()
 
 	var remaining bool
 	var jReqs []journalRecord
-	var wg sync.WaitGroup
 	s.journal.lock.RLock()
 	for i, r := range reqs {
 		if r.found {
@@ -146,29 +142,37 @@ func (s journalChunkSource) getManyCompressed(ctx context.Context, eg *errgroup.
 		return jReqs[i].r.Offset < jReqs[j].r.Offset
 	})
 
-	wg.Add(len(jReqs))
-	go func() {
-		wg.Wait()
-		s.journal.lock.RUnlock()
-	}()
-	for i := range jReqs {
-		// workers populate the parent error group
-		// record local workers for releasing lock
-		eg.Go(func() error {
-			defer wg.Done()
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			rec := jReqs[i]
-			a := reqs[rec.idx].a
-			if cc, err := s.journal.getCompressedChunkAtRange(rec.r, *a); err != nil {
+	compressed := make([]CompressedChunk, len(jReqs))
+	var reads errgroup.Group
+	reads.SetLimit(16)
+	for i, rec := range jReqs {
+		reads.Go(func() error {
+			if err := ctx.Err(); err != nil {
 				return err
-			} else if cc.IsEmpty() {
-				return errors.New("chunk in journal index was empty.")
-			} else {
-				found(ctx, cc)
-				return nil
 			}
+			cc, err := s.journal.getCompressedChunkAtRange(rec.r, *reqs[rec.idx].a)
+			if err != nil {
+				return err
+			}
+			if cc.IsEmpty() {
+				return errors.New("chunk in journal index was empty.")
+			}
+			compressed[i] = cc
+			return nil
+		})
+	}
+	err := reads.Wait()
+	s.journal.lock.RUnlock()
+	if err != nil {
+		return remaining, gcBehavior_Continue, err
+	}
+	for _, cc := range compressed {
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			found(ctx, cc)
+			return nil
 		})
 	}
 	return remaining, gcBehavior_Continue, nil

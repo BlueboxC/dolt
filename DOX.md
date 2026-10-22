@@ -37,7 +37,13 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - Full-Text filter qualification covers equality, NULL, ordinary index coexistence, AND/OR residuals and multiple Full-Text indexes in normal/prepared keyed and keyless queries.
 
+- Journal compressed-batch reads retain the journal lock only while reading the selected bytes. Invoke caller callbacks after release; preserve the read snapshot, keeper refusal, cancellation and bounded I/O concurrency. This removes callback lock contention, not every GC pause.
+
+- Remote upload readers reject length/checksum mismatches before table publication. Existing table files use no-replace publication and retain contents; refresh their pruning grace timestamp. Chunk references validate the content hash before address traversal. Preserve error propagation and pending-file protection.
+
 ## Work Guidance
+
+- Byte sinks synchronize completed file contents before close and publication. A write, sync or close failure prevents BufferedFileByteSink from renaming its temporary file; preserve the first I/O failure and drain the background writer.
 
 Keep the fork limited to the verified engine corrections described in FORK.md. Beads separately qualifies its complete dependency tuple and native backup compatibility before installation.
 

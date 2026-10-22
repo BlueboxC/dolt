@@ -2,6 +2,8 @@
 
 This dependency fork starts from official Dolt v2.5.1 at `d1f8f8e763864d26e4b0753647c97f283f06e404`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads.
 
+- [#12172 / PR #12173](https://github.com/dolthub/dolt/pull/12173): adapt reltuk's synchronization fix for file-backed byte sinks before GC publishes table files. Preserve the existing sink APIs and first-error handling. A narrow private writer capability permits deterministic write/sync/close failure tests; these tests and disposable filesystem round trips do not simulate physical power loss or certify every filesystem's durability.
+
 - [Dolt #12013](https://github.com/dolthub/dolt/issues/12013): adapt elianddb's [PR #12017](https://github.com/dolthub/dolt/pull/12017), retaining its regression cases. Incompatible primary-key changes return an explicit error instead of silently pairing unrelated rows. Adapt the key comparison to 2.5.0's `ComparePrimaryKeys`; retain compatible physical-key/type changes and the existing drop/recreate handling. Preserve 2.5.0's crossed-column-tag refusal in the physical-descriptor fallback, with forward/reverse regression cases. Historical system-table scans retain their warning-and-stop contract.
 - [Dolt #12104](https://github.com/dolthub/dolt/issues/12104): filter explicit history commits with the engine's existing ancestry API before constructing their row iterator. Both indexed and filter shortcuts use that iterator; full scans, current-head rows, merges and explicit revision comparisons keep their own semantics.
 
@@ -50,3 +52,9 @@ Qualification covers normal/prepared merges in both directions and squash mode, 
 ## Full-Text ordinary-filter correctness
 
 The pinned analyzer must distinguish MATCH lookups from ordinary equality/NULL/range filters on a Full-Text column. Preserve residual AND/OR semantics and keyed/keyless duplicates. Native Dolt runs the shared four-fixture, twenty-predicate normal/prepared regression alongside existing Full-Text and merge controls. The official 2.5.1 dependency pair reproduces the ordinary-filter error; this is separate from the earlier duplicate-document and derived-table fixes.
+
+### GC callback contention and remote publication integrity (2026-10-22)
+
+Dolt #12170: snapshot compressed request bytes under the journal lock with bounded read concurrency; release before scheduling caller callbacks. A deterministic slow-callback regression with an errgroup concurrency limit proves a journal writer can finish while copying is paused. Existing journal/race and full NBS tests pass. This does not claim elimination of every SQL GC pause or a new throughput guarantee.
+
+Adapted Dolt PR #12174 by reltuk (062e1e0e9c8fb2654d2423913340119ec67d92dd): validate upload body length/MD5 before publication, never replace an existing table file, refresh its pruning grace timestamp and verify chunk hashes before traversing references. Preserve Apache-2.0 attribution and the contributor’s HTTP, pruning and reference tests. Full remotesrv, file and NBS packages pass on macOS; Windows/Linux implementations are source/build checked separately, not native runtime certified here. The embedded Beads engine does not expose a remote HTTP service.
