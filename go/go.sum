@@ -76,6 +76,8 @@ github.com/BlueboxC/go-mysql-server v0.0.0-20261020203840-6a5992f57d07 h1:aTpi+r
 github.com/BlueboxC/go-mysql-server v0.0.0-20261020203840-6a5992f57d07/go.mod h1:HRYEDIMEmcFhEjdrRnEwCiWFbdTMUxyjEI9Swn2Pmvc=
 github.com/BlueboxC/go-mysql-server v0.0.0-20261020211445-e43b463224d6 h1:TYRfXrLuRzyZ+fdhF1rZ00pf/ZpSx9ji94ByEXqA2FI=
 github.com/BlueboxC/go-mysql-server v0.0.0-20261020211445-e43b463224d6/go.mod h1:HRYEDIMEmcFhEjdrRnEwCiWFbdTMUxyjEI9Swn2Pmvc=
+github.com/BlueboxC/go-mysql-server v0.0.0-20261022082133-6071a7f383ba h1:YrsSH89QhVLcLCJuqqc2qvP285pokN/mQF2nUvG3Xwg=
+github.com/BlueboxC/go-mysql-server v0.0.0-20261022082133-6071a7f383ba/go.mod h1:HRYEDIMEmcFhEjdrRnEwCiWFbdTMUxyjEI9Swn2Pmvc=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.1.0 h1:ksErzDEI1khOiGPgpwuI7x2ebx/uXQNw7xJpn9Eq1+I=
 github.com/BurntSushi/toml v1.1.0/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
@@ -410,6 +412,8 @@ github.com/klauspost/compress v1.9.7/go.mod h1:RyIbtBH6LamlWaDj8nUwkbUhJ87Yi3uG0
 github.com/klauspost/compress v1.10.5/go.mod h1:aoV0uJVorq1K+umq18yTdKaF57EivdYsUV+/s2qKfXs=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
+github.com/klauspost/compress v1.18.7 h1:aUyZsS4kH3QTKurYhAOwAHxllVPnOthb3vPfnF1Ehjw=
+github.com/klauspost/compress v1.18.7/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/klauspost/cpuid/v2 v2.0.12 h1:p9dKCg8i4gmOxtv35DvrYoWqYzQrvEVdjQ762Y0OqZE=
 github.com/klauspost/cpuid/v2 v2.0.12/go.mod h1:g2LTdtYhdyuGPqyWyv7qRAmj1WBqxuObKfj5c0PQa7c=
 github.com/kr/fs v0.1.0/go.mod h1:FFnZGqtBN9Gxj7eW1uZ42v5BccTP0vu6NEaFoC2HwRg=
@@ -922,5 +926,3 @@ rsc.io/pdf v0.1.1 h1:k1MczvYDUvJBe93bYd7wrZLLUEcLZAuF824/I4e5Xr4=
 rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
 rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
-github.com/klauspost/compress v1.18.7 h1:aUyZsS4kH3QTKurYhAOwAHxllVPnOthb3vPfnF1Ehjw=
-github.com/klauspost/compress v1.18.7/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=

@@ -209,4 +209,4 @@ require (
 
 go 1.26.2
 
-replace github.com/dolthub/go-mysql-server => github.com/BlueboxC/go-mysql-server v0.0.0-20261020211445-e43b463224d6
+replace github.com/dolthub/go-mysql-server => github.com/BlueboxC/go-mysql-server v0.0.0-20261022082133-6071a7f383ba

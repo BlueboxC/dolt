@@ -35,6 +35,8 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - A nullable column added to an existing ancestor row treats implicit NULL as unchanged. Preserve genuine conflicting inserts and two non-NULL edits.
 - Full-Text rebuilds use collation-aware Prolly primary maps for pseudo-table edits and count lookups. Preserve duplicates, NULLs, multiple indexes and persisted table contents; this remains a full rebuild.
 
+- Full-Text filter qualification covers equality, NULL, ordinary index coexistence, AND/OR residuals and multiple Full-Text indexes in normal/prepared keyed and keyless queries.
+
 ## Work Guidance
 
 Keep the fork limited to the verified engine corrections described in FORK.md. Beads separately qualifies its complete dependency tuple and native backup compatibility before installation.
