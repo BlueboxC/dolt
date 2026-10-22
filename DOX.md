@@ -41,6 +41,16 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - Remote upload readers reject length/checksum mismatches before table publication. Existing table files use no-replace publication and retain contents; refresh their pruning grace timestamp. Chunk references validate the content hash before address traversal. Preserve error propagation and pending-file protection.
 
+- Archive stream writers deduplicate dictionary content by SHA-256, independently of reader-cache object identity. Copying/decompressing archived chunks creates no compression dictionary; create it only when recompressing Snappy input. Preserve archive format, chunk hashes and cancellation semantics.
+
+- Keyless conflict artifact deletion hashes base rows with the base value descriptor and added rows with ours. Type/layout differences must not coerce historical rows into the current schema; preserve row cardinality and unrelated artifacts.
+
+- Commit-ancestor commit_hash lookups are non-unique because merge commits retain one row per parent. Server and direct/prepared queries must return every selected edge.
+
+- Journal buffers allocate on first use and grow to the existing per-record/batch ceiling. Small journals and range indexes do not reserve maximum capacity eagerly. Preserve flush offsets, sync, bootstrap and reader/Close coordination. Large active journals can still retain a full buffer; reflog and server database lifetimes are unchanged.
+
+- Three-dot log ranges exclude every best common ancestor and its reachable history. Preserve symmetric ranges, --all, explicit exclusions and branch/working references; the fork virtual-base diff resolver keeps its existing contract.
+
 ## Work Guidance
 
 - Byte sinks synchronize completed file contents before close and publication. A write, sync or close failure prevents BufferedFileByteSink from renaming its temporary file; preserve the first I/O failure and drain the background writer.

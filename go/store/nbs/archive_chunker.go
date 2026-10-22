@@ -15,6 +15,9 @@
 package nbs
 
 import (
+	"crypto/sha256"
+	"sync"
+
 	"github.com/dolthub/gozstd"
 
 	"github.com/dolthub/dolt/go/store/chunks"
@@ -27,9 +30,12 @@ import (
 //
 // We also track the compression dictionary (CDict) because we sometimes need it too.
 type DecompBundle struct {
-	dDict         *gozstd.DDict
-	cDict         *gozstd.CDict
-	rawDictionary *[]byte
+	dDict          *gozstd.DDict
+	cDict          *gozstd.CDict
+	rawDictionary  *[]byte
+	dictionaryHash [sha256.Size]byte
+	cDictOnce      sync.Once
+	cDictErr       error
 }
 
 // NewDecompBundle creates a new DecompBundle from a zStd compressed dictionary. The input should be the same
@@ -40,17 +46,18 @@ func NewDecompBundle(compressedDict []byte) (*DecompBundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	cDict, err := gozstd.NewCDict(rawDict)
-	if err != nil {
-		return nil, err
-	}
-
 	dict, err := gozstd.NewDDict(rawDict)
 	if err != nil {
 		return nil, err
 	}
 
-	return &DecompBundle{dDict: dict, rawDictionary: &rawDict, cDict: cDict}, nil
+	return &DecompBundle{dDict: dict, rawDictionary: &rawDict, dictionaryHash: sha256.Sum256(rawDict)}, nil
+}
+
+// Copying an already-compressed chunk needs no compression dictionary.
+func (b *DecompBundle) compressionDictionary() (*gozstd.CDict, error) {
+	b.cDictOnce.Do(func() { b.cDict, b.cDictErr = gozstd.NewCDict(*b.rawDictionary) })
+	return b.cDict, b.cDictErr
 }
 
 type ArchiveToChunker struct {

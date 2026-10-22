@@ -34,7 +34,7 @@ import (
 	"github.com/dolthub/dolt/go/store/hash"
 )
 
-// journalWriterBuffSize is the size of the statically allocated buffer where journal records are
+// journalWriterBuffSize limits the on-demand buffer where journal records are
 // built before being written to the journal file on disk. There is not a hard limit on the size
 // of records – specifically, some newer data chunking formats (i.e. optimized JSON storage) can
 // produce chunks (and therefore chunk records) that are megabytes in size. The current limit of
@@ -101,9 +101,9 @@ func openJournalWriter(ctx context.Context, path string) (wr *journalWriter, exi
 	}
 
 	return &journalWriter{
-		buf:     make([]byte, 0, journalWriterBuffSize),
-		journal: newJournalFile(f),
-		path:    path,
+		bufLimit: int(journalWriterBuffSize),
+		journal:  newJournalFile(f),
+		path:     path,
 	}, true, nil
 }
 
@@ -125,9 +125,9 @@ func createJournalWriter(ctx context.Context, path string) (wr *journalWriter, e
 	}
 
 	return &journalWriter{
-		buf:     make([]byte, 0, journalWriterBuffSize),
-		journal: newJournalFile(f),
-		path:    path,
+		bufLimit: int(journalWriterBuffSize),
+		journal:  newJournalFile(f),
+		path:     path,
 	}, nil
 }
 
@@ -150,6 +150,7 @@ type journalWriter struct {
 	index       *os.File
 	path        string
 	buf         []byte
+	bufLimit    int
 	indexed     int64
 	unsyncd     uint64
 	uncmpSz     uint64
@@ -627,17 +628,29 @@ func (wr *journalWriter) readAt(p []byte, off int64) (n int, err error) {
 
 // getBytes returns a buffer for writers to copy data into.
 func (wr *journalWriter) getBytes(ctx context.Context, behavior dherrors.FatalBehavior, n int) (buf []byte, err error) {
-	c, l := cap(wr.buf), len(wr.buf)
-	if n > c {
-		err = fmt.Errorf("requested bytes (%d) exceeds capacity (%d)", n, c)
+	limit := wr.bufLimit
+	if limit == 0 {
+		limit = cap(wr.buf)
+	} // Internal fixed-buffer writers retain their capacity limit.
+	l := len(wr.buf)
+	if n > limit {
+		err = fmt.Errorf("requested bytes (%d) exceeds capacity (%d)", n, limit)
 		return
-	} else if n > c-l {
+	} else if n > limit-l {
 		if err = wr.flush(ctx, behavior); err != nil {
 			return
 		}
 	}
 	l = len(wr.buf)
-	wr.buf = wr.buf[:l+n]
+	need := l + n
+	if need > cap(wr.buf) {
+		grown := make([]byte, need, min(limit, max(4096, need, 2*cap(wr.buf))))
+		copy(grown, wr.buf)
+		wr.buf = grown
+	} else {
+		wr.buf = wr.buf[:need]
+	}
+
 	buf = wr.buf[l : l+n]
 	return
 }
@@ -777,13 +790,13 @@ func toAddr16(full hash.Hash) (prefix addr16) {
 
 func newRangeIndex() rangeIndex {
 	return rangeIndex{
-		novel:  make(map[hash.Hash]Range, journalIndexDefaultMaxNovel),
+		novel:  make(map[hash.Hash]Range),
 		cached: make(map[addr16]Range),
 	}
 }
 
 func estimateRangeCount(info os.FileInfo) uint32 {
-	return uint32(info.Size()/32) + journalIndexDefaultMaxNovel
+	return uint32(info.Size() / 32)
 }
 
 func (idx rangeIndex) get(h hash.Hash) (rng Range, ok bool) {
@@ -817,6 +830,6 @@ func (idx rangeIndex) flatten(ctx context.Context) rangeIndex {
 	for a, r := range idx.novel {
 		idx.cached[toAddr16(a)] = r
 	}
-	idx.novel = make(map[hash.Hash]Range, journalIndexDefaultMaxNovel)
+	idx.novel = make(map[hash.Hash]Range)
 	return idx
 }

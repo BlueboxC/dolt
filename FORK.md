@@ -62,3 +62,63 @@ Adapted Dolt PR #12174 by reltuk (062e1e0e9c8fb2654d2423913340119ec67d92dd): val
 ## Keyless secondary reader NULL contract
 
 Adapt [PR #12171](https://github.com/dolthub/dolt/pull/12171) by angelamayxie: carry the NULL-safe equality mask into the keyless secondary iterator and reject ordinary NULL lookup keys there. A missing mask is ordinary equality. The earlier #12160 SQL fix remains in the KV mappers; this is complementary coverage of the lower reader API, verified with real Prolly primary/secondary maps and duplicate cardinality.
+
+
+## Archive dictionary retention (#12177)
+
+Deduplicate archive dictionaries by a SHA-256 of their raw content, rather than
+the address of a decoded bundle. Reader-cache eviction can create new bundle
+objects for the same dictionary; those objects no longer multiply output
+dictionaries or stay pinned by the stream writer. Build compression dictionaries
+only for actual Snappy recompression, preserving concurrent initialization.
+The archive format and compressed chunk bytes remain compatible. Regression
+coverage copies 600 chunks using 300 dictionaries through three generations,
+forcing the existing 256-entry reader cache to evict dictionaries. This corrects
+the retained-dictionary mechanism; it is not a fixed total-memory guarantee for
+all GC or backup workloads. Based on quad341's report in dolthub/dolt #12177.
+
+
+## Keyless conflict version schemas (#12186)
+
+Deleting a keyless conflict uses the value descriptor of the row that supplied
+its original hash: base for a removed ancestor row, ours for an added row. This
+preserves identity across column type changes instead of writing base values
+into current-schema fields. Normal and prepared regressions cover INT/VARCHAR
+changes in both directions and retain duplicate cardinality and table contents.
+The existing absent-row and Full-Text conflict protections remain unchanged.
+Based on macneale4's supplied SQL reproduction in dolthub/dolt #12186.
+
+
+## Commit-ancestor lookup cardinality (#12178)
+
+The commit_hash index of dolt_commit_ancestors is non-unique. A merge commit
+has several parent rows, so advertising uniqueness incorrectly selected the
+server's max-one-row iterator. Direct and wire-protocol normal/prepared
+regressions retain two-parent merges, ordinary commits and absent hashes.
+No schema or index data migration is required: the correction changes the
+system table's declared index contract.
+
+
+## Small-journal memory reservations (#12179)
+
+Allocate journal write buffers on demand, growing geometrically up to the
+existing ceiling rather than reserving 5 MiB per opened journal. Keep that
+logical ceiling independent of physical capacity, including oversized-record
+refusal and flush offsets. Range-index maps grow with actual entries; a tiny
+persisted index no longer reserves another 16,384-entry growth allowance.
+The reflog, server database lifetime and maximum active-buffer size are unchanged.
+This targets retained memory for small journals, not a fixed total-RSS promise
+or automatic idle-database eviction. Existing journal reader/Close protections,
+sync, recovery and on-disk formats remain intact.
+
+
+## Three-dot log common-history exclusion (#12182)
+
+Adapt macneale4's merged [PR #12182](https://github.com/dolthub/dolt/pull/12182),
+head `098811895aac26c34792c1da8433a9c908499a8f`: exclude every best common
+ancestor from `DOLT_LOG('A...B')` instead of choosing one. Preserve the fork's
+existing argument handling, `--all` behavior and recursive virtual-base diff
+resolver. Normal/prepared criss-cross regressions retain both directions,
+identical heads, the expected two exclusive commits and unchanged logical refs.
+The proposal's separate newest-base diff warning policy is not substituted for
+the fork's already qualified virtual-base diff contract.
