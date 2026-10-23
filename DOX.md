@@ -53,6 +53,8 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - Historical prepared table reads resolve the bound revision on each execution; NULL and invalid revisions fail. Preparation uses the current schema for metadata and does not promise historical-only tables or columns.
 
+- Virtual merge-base construction evaluates time defaults in UTC and restores the caller time_zone on success or failure. GC continues to retain referenced virtual bases; a missing-cache reconstruction must reproduce the same root across time zones.
+
 ## Work Guidance
 
 - Byte sinks synchronize completed file contents before close and publication. A write, sync or close failure prevents BufferedFileByteSink from renaming its temporary file; preserve the first I/O failure and drain the background writer.

@@ -134,3 +134,7 @@ Regression for [#12191](https://github.com/dolthub/dolt/issues/12191): qualify S
 Adapt the buffer release from elianddb’s [PR #12194](https://github.com/dolthub/dolt/pull/12194) to our existing lazy allocation and range-index patch. Successful flushes release dynamic buffers above 64 KiB; empty flushes do no write. Fixed-capacity internal writers, the 5 MiB record ceiling and reader/Close coordination remain intact. Large repeated flushes trade renewed allocation for lower idle heap.
 
 Consumer qualification preserves decimal types explicitly for the two wire/prepared literal-scale controls and the retained COALESCE fixture: the test driver serializes arbitrary-precision decimals as VARCHAR. Use legal DECIMAL(31,30) casts for wire scale controls; direct literal controls still exercise scale 40. This fixture adaptation is not a production coercion change.
+
+## Timezone-independent virtual merge bases (#12198)
+
+Adapt [PR #12198](https://github.com/dolthub/dolt/pull/12198): construct virtual bases with time_zone +00:00 and restore the caller setting, including error returns. The contributor's normal/prepared time-default preview is retained. The fork still refuses conflicting virtual ancestors and retains referenced virtual objects through GC. Its adapted persistence regression performs actual GC, verifies retention and conflict resolution, then exercises the missing-cache fallback using a local metadata copy; it does not delete a protected base or claim GC did so. A fresh -07:00 session must rebuild the exact cached root and retain its timezone.
