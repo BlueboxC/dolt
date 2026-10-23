@@ -122,3 +122,13 @@ resolver. Normal/prepared criss-cross regressions retain both directions,
 identical heads, the expected two exclusive commits and unchanged logical refs.
 The proposal's separate newest-base diff warning policy is not substituted for
 the fork's already qualified virtual-base diff contract.
+
+## Historical prepared table reads
+
+Regression for [#12191](https://github.com/dolthub/dolt/issues/12191): qualify SQL PREPARE/EXECUTE and driver binds across direct/wire modes, alternating HEAD and its parent, NULL and invalid revisions. The analyzer replacement owns metadata-only deferral; execution still resolves each supplied revision.
+
+## Journal burst retention
+
+Adapt the buffer release from elianddb’s [PR #12194](https://github.com/dolthub/dolt/pull/12194) to our existing lazy allocation and range-index patch. Successful flushes release dynamic buffers above 64 KiB; empty flushes do no write. Fixed-capacity internal writers, the 5 MiB record ceiling and reader/Close coordination remain intact. Large repeated flushes trade renewed allocation for lower idle heap.
+
+Consumer qualification preserves decimal types explicitly for the two wire/prepared literal-scale controls and the retained COALESCE fixture: the test driver serializes arbitrary-precision decimals as VARCHAR. Use legal DECIMAL(31,30) casts for wire scale controls; direct literal controls still exercise scale 40. This fixture adaptation is not a production coercion change.

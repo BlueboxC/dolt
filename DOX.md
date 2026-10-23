@@ -47,9 +47,11 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - Commit-ancestor commit_hash lookups are non-unique because merge commits retain one row per parent. Server and direct/prepared queries must return every selected edge.
 
-- Journal buffers allocate on first use and grow to the existing per-record/batch ceiling. Small journals and range indexes do not reserve maximum capacity eagerly. Preserve flush offsets, sync, bootstrap and reader/Close coordination. Large active journals can still retain a full buffer; reflog and server database lifetimes are unchanged.
+- Journal buffers allocate on first use and grow to the existing per-record/batch ceiling. Small journals and range indexes do not reserve maximum capacity eagerly. Preserve flush offsets, sync, bootstrap and reader/Close coordination. Successful flushes release grown buffers above 64 KiB for dynamically sized writers; fixed-capacity internal writers retain their limit. Bursts allocate again after flushing; reflog and server database lifetimes are unchanged.
 
 - Three-dot log ranges exclude every best common ancestor and its reachable history. Preserve symmetric ranges, --all, explicit exclusions and branch/working references; the fork virtual-base diff resolver keeps its existing contract.
+
+- Historical prepared table reads resolve the bound revision on each execution; NULL and invalid revisions fail. Preparation uses the current schema for metadata and does not promise historical-only tables or columns.
 
 ## Work Guidance
 
