@@ -10,7 +10,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 ## Local Contracts
 
-- Base engine changes on the official v2.5.1 commit d1f8f8e763864d26e4b0753647c97f283f06e404. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes.
+- Base engine changes on the official v2.6.0 commit 05e6bceb1a210a7a8d770b74b8ef4825c165c0a8. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes. The engine and analyzer require Go 1.27.3; consumers must select that compiler before building.
 - Keep storage corrections in Dolt. Do not introduce Beads-specific schema, tasks, orchestration, configuration or private project data.
 - Preserve upstream contributor tests and attribution. Remove a carried patch only after the corresponding upstream behavior passes its regression.
 - Reject incompatible explicit-revision primary-key diffs instead of returning mispaired rows. Historical system-table scans retain warning-and-stop behavior. Preserve supported same-key and physically compatible type changes.
@@ -26,7 +26,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - SQL remote removal publishes session-map changes only after repository-state saving succeeds; provider, read and save failures retain the live remote and tracking entries.
 - KV lookup equality and the keyless secondary reader skip NULL keys unless the corresponding equality is explicitly NULL-safe. Preserve keyless duplicate cardinality and outer NULL extension.
 - Matching primary-key changes on both branches may project an unchanged-type ancestor key with unique non-NULL values. Preserve ancestor history, ordinary secondary indexes, constraints and conflict-base reachability; unsupported layouts retain the existing refusal.
-- Recursive merge bases combine every best common ancestor deterministically. Conflicting bases refuse explicitly. Three-dot diff APIs share this resolver without changing branch, working-set or tag references; immutable virtual objects may be materialized.
+- Recursive merge bases reuse upstream 2.6.0's ORT resolver, with the fork's explicit refusal of conflicting virtual bases retained at merge and three-dot diff entry points. Keep deterministic clean-base resolution and branch, working-set and tag references; immutable virtual objects may be materialized.
 - Artifact address traversal retains virtual conflict-base commits during garbage collection and native backup. Rollback after feature writes requires the matching retained data and engine, rather than a binary-only downgrade.
 
 - DOLT_LOG --all traverses all local branch heads through the existing deduplicating history walker. Preserve explicit revision/range exclusions, table filters, prepared options and ordinary HEAD-only reads.

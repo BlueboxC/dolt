@@ -15,6 +15,7 @@
 package enginetest
 
 import (
+	"context"
 	gosql "database/sql"
 	"fmt"
 	"os"
@@ -950,12 +951,6 @@ func TestBlobs(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "md5_binary")
 		require.NoError(t, os.WriteFile(path, []byte{0xff, 0x00, 0x80, 'a', 'b', 'c'}, 0600))
-		_, oldSecureFilePriv, ok := sql.SystemVariables.GetGlobal("secure_file_priv")
-		require.True(t, ok)
-		require.NoError(t, sql.SystemVariables.AssignValues(map[string]interface{}{"secure_file_priv": dir}))
-		t.Cleanup(func() {
-			require.NoError(t, sql.SystemVariables.AssignValues(map[string]interface{}{"secure_file_priv": oldSecureFilePriv}))
-		})
 		script := queries.ScriptTest{
 			Name: "MD5 of binary file contents",
 			Assertions: []queries.ScriptTestAssertion{{
@@ -967,6 +962,10 @@ func TestBlobs(t *testing.T) {
 			t.Run(fmt.Sprintf("prepared=%t", prepared), func(t *testing.T) {
 				h := newDoltHarness(t)
 				defer h.Close()
+				vars := sqle.NewEngineVariables()
+				h.WithEngineVariables(vars)
+				ctx := sql.NewContextWithVariables(context.Background(), vars)
+				require.NoError(t, vars.System.(sql.ContextAwareSystemVariableRegistry).AssignValuesWithContext(ctx, map[string]interface{}{"secure_file_priv": dir}))
 				if prepared {
 					enginetest.TestScriptPrepared(t, h, script)
 				} else {
@@ -1608,6 +1607,16 @@ func TestDoltMerge(t *testing.T) {
 	RunDoltMergeTests(t, h)
 }
 
+func TestDoltMergeMultipleBases(t *testing.T) {
+	h := newDoltEnginetestHarness(t)
+	RunDoltMergeMultipleBasesTests(t, h)
+}
+
+func TestDoltMergeMultipleBasesPrepared(t *testing.T) {
+	h := newDoltEnginetestHarness(t)
+	RunDoltMergeMultipleBasesPreparedTests(t, h)
+}
+
 func TestDoltMergeBasesTableFunction(t *testing.T) {
 	h := newDoltEnginetestHarness(t)
 	RunDoltMergeBasesTableFunctionTests(t, h)
@@ -1804,13 +1813,24 @@ func TestBackupsSystemTable(t *testing.T) {
 }
 
 func TestHistorySystemTable(t *testing.T) {
-	harness := newDoltEnginetestHarness(t).WithParallelism(2)
-	RunHistorySystemTableTests(t, harness)
+	forEachEngine(t, RunHistorySystemTableTests)
 }
 
 func TestHistorySystemTablePrepared(t *testing.T) {
-	harness := newDoltEnginetestHarness(t).WithParallelism(2)
-	RunHistorySystemTableTestsPrepared(t, harness)
+	forEachEngine(t, RunHistorySystemTableTestsPrepared)
+}
+
+// forEachEngine runs |f| as an engine subtest, then as a server engine subtest.
+//
+// Some behavior differs over the wire, which the engine never exercises.
+// A suite that passes on the engine can still fail on the server engine.
+func forEachEngine(t *testing.T, f func(t *testing.T, h DoltEnginetestHarness)) {
+	t.Run("engine", func(t *testing.T) {
+		f(t, newDoltEnginetestHarness(t))
+	})
+	t.Run("server engine", func(t *testing.T) {
+		f(t, newDoltServerTestHarness(t))
+	})
 }
 
 func TestBrokenHistorySystemTablePrepared(t *testing.T) {

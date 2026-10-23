@@ -53,15 +53,20 @@ const (
 	ConflictDiffTypeRemoved  = "removed"
 )
 
+// MergeCommits merges |mergeCommit| into |commit|. When they have several best common ancestors, the merge base is a
+// virtual commit that merges those ancestors together.
 func MergeCommits(ctx *sql.Context, tableResolver doltdb.TableResolver, commit, mergeCommit *doltdb.Commit, opts editor.Options) (*Result, error) {
-	ancestor, err := MergeBaseCommit(ctx, tableResolver, commit, mergeCommit, opts)
+	ancCommit, mergeBases, conflicted, err := resolveMergeBase(ctx, commit, mergeCommit)
 	if err != nil {
 		return nil, err
 	}
-	return mergeCommitsAtBase(ctx, tableResolver, commit, mergeCommit, ancestor, opts)
-}
-
-func mergeCommitsAtBase(ctx *sql.Context, tableResolver doltdb.TableResolver, commit, mergeCommit, ancCommit *doltdb.Commit, opts editor.Options) (*Result, error) {
+	if len(conflicted) != 0 {
+		return nil, fmt.Errorf("best common ancestors conflict; virtual merge base requires explicit resolution")
+	}
+	ancestor, err := mergeBaseRootish(ancCommit, mergeBases, conflicted)
+	if err != nil {
+		return nil, err
+	}
 
 	ourRoot, err := commit.GetRootValue(ctx)
 	if err != nil {
@@ -82,7 +87,7 @@ func mergeCommitsAtBase(ctx *sql.Context, tableResolver doltdb.TableResolver, co
 		IsCherryPick:        false,
 		KeepSchemaConflicts: true,
 	}
-	return MergeRoots(ctx, tableResolver, ourRoot, theirRoot, ancRoot, mergeCommit, ancCommit, opts, mo)
+	return MergeRoots(ctx, tableResolver, ourRoot, theirRoot, ancRoot, mergeCommit, ancestor, opts, mo)
 }
 
 type Result struct {
@@ -90,6 +95,9 @@ type Result struct {
 	SchemaConflicts       []SchemaConflict
 	Stats                 map[doltdb.TableName]*MergeStats
 	CommitVerificationErr error
+	// FullTextRebuilds are the tables whose Full-Text pseudo-index tables the merge did not rebuild because of
+	// MergeOpts.SkipFullTextRebuild.
+	FullTextRebuilds []doltdb.TableName
 }
 
 func (r Result) HasSchemaConflicts() bool {
@@ -334,7 +342,8 @@ func MergeRoots(
 		}
 	}
 
-	mergedRoot, err = rebuildFullTextIndexes(ctx, mergedRoot, ourRoot, theirRoot, visitedTables)
+	var fullTextRebuilds []doltdb.TableName
+	mergedRoot, fullTextRebuilds, err = rebuildFullTextIndexes(ctx, mergedRoot, ourRoot, theirRoot, visitedTables, !mergeOpts.SkipFullTextRebuild)
 	if err != nil {
 		return nil, err
 	}
@@ -376,9 +385,10 @@ func MergeRoots(
 	}
 
 	return &Result{
-		Root:            mergedRoot,
-		SchemaConflicts: schConflicts,
-		Stats:           tblToStats,
+		Root:             mergedRoot,
+		SchemaConflicts:  schConflicts,
+		Stats:            tblToStats,
+		FullTextRebuilds: fullTextRebuilds,
 	}, nil
 }
 

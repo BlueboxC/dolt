@@ -77,9 +77,9 @@ teardown() {
     dolt sql -q "create table t (pk int primary key)"
     dolt add .
     dolt commit -m "initial"
-    dolt checkout -b b1
-    dolt push -u origin b1:main
-    dolt checkout -b b2
+    dolt branch b1
+    dolt push -u origin b1:other
+    dolt branch b2
     dolt push -u other b2:main
     run grep '"b1"' .dolt/repo_state.json
     [ "$status" -eq 0 ]

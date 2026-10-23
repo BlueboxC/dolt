@@ -180,6 +180,7 @@ func (s SessionStateAdapter) RemoveRemote(_ context.Context, name string) error 
 	if !ok {
 		return env.ErrRemoteNotFound
 	}
+
 	fs, err := s.session.Provider().FileSystemForDatabase(s.dbName)
 	if err != nil {
 		return err
@@ -229,7 +230,8 @@ func (s SessionStateAdapter) RemoveBackup(_ context.Context, name string) error 
 }
 
 func (s SessionStateAdapter) TempTableFilesDir() (string, error) {
-	branchState, _, err := s.session.lookupDbState(sql.NewContext(context.Background()), s.dbName)
+	ctx := sql.NewContextWithVariables(context.Background(), s.session.EngineVariables(), sql.WithSession(s.session))
+	branchState, _, err := s.session.lookupDbState(ctx, s.dbName)
 	if err != nil {
 		return "", err
 	}
