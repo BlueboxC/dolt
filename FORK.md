@@ -138,3 +138,7 @@ Consumer qualification preserves decimal types explicitly for the two wire/prepa
 ## Timezone-independent virtual merge bases (#12198)
 
 Adapt [PR #12198](https://github.com/dolthub/dolt/pull/12198): construct virtual bases with time_zone +00:00 and restore the caller setting, including error returns. The contributor's normal/prepared time-default preview is retained. The fork still refuses conflicting virtual ancestors and retains referenced virtual objects through GC. Its adapted persistence regression performs actual GC, verifies retention and conflict resolution, then exercises the missing-cache fallback using a local metadata copy; it does not delete a protected base or claim GC did so. A fresh -07:00 session must rebuild the exact cached root and retain its timezone.
+
+## SQL follow-ups from PR12205
+
+Pin [BlueboxC/go-mysql-server1aa8b38f5b78](https://github.com/BlueboxC/go-mysql-server/commit/1aa8b38f5b78da630065da597096598bd17df318) for correlated lateral filters, session limits and complete error-handler operations. Preserve prior decimal and Full-Text fixes. Additional counter-aware execution fixes conditional/loop handlers that panic in the proposal, with normal/prepared embedded regressions. This does not implement multiple result sets from Dolt #12199. Driver, storage format and external CLI policy are unchanged; consumers must repeat the replacement.

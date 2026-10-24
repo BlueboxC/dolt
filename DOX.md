@@ -55,6 +55,8 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - Virtual merge-base construction evaluates time defaults in UTC and restores the caller time_zone on success or failure. GC continues to retain referenced virtual bases; a missing-cache reconstruction must reproduce the same root across time zones.
 
+- The analyzer carries the reviewed lateral-filter/session-limit fixes and counter-aware handler execution. Preserve the existing decimal/Full-Text corrections and one-result-set procedure boundary.
+
 ## Work Guidance
 
 - Byte sinks synchronize completed file contents before close and publication. A write, sync or close failure prevents BufferedFileByteSink from renaming its temporary file; preserve the first I/O failure and drain the background writer.
