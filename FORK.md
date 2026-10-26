@@ -1,5 +1,7 @@
 # Dolt engine fixes for Beads Continuity
 
+The SQL analyzer includes the global-variable authorization correction for [Dolt #12207](https://github.com/dolthub/dolt/issues/12207): SYSTEM_VARIABLES_ADMIN or SUPER is required for global and persisted assignments, with current privileges checked again for bound plans. The server regression verifies limited-user rejection without changing global or persisted values, session assignments, administrative persistence and prepared execution after REVOKE.
+
 This dependency fork starts from official Dolt v2.6.0 at `05e6bceb1a210a7a8d770b74b8ef4825c165c0a8`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads. This release and its SQL analyzer require Go 1.27.3.
 
 The 2.6.0 integration reuses upstream changes already corresponding to carried fixes instead of applying them twice. It retains the fork's execution-time log options, remote-save ordering, non-unique ancestor lookup and storage/SQL regressions. The ORT merge-base implementation is reused with an explicit refusal when its virtual base contains conflicting cells, including the three-dot diff entry point; automatic reconciliation of such bases remains outside this fork's admitted behavior.

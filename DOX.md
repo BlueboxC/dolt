@@ -56,6 +56,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - Virtual merge-base construction evaluates time defaults in UTC and restores the caller time_zone on success or failure. GC continues to retain referenced virtual bases; a missing-cache reconstruction must reproduce the same root across time zones.
 
 - The analyzer carries the reviewed lateral-filter/session-limit fixes and counter-aware handler execution. Preserve the existing decimal/Full-Text corrections and one-result-set procedure boundary.
+- The analyzer requires SYSTEM_VARIABLES_ADMIN or SUPER for global and persisted SQL SET assignments, including current-privilege checks on retained bound plans. Keep session/user assignments and trusted initialization intact; qualify the SQL server with disposable users and persisted configuration.
 
 ## Work Guidance
 
@@ -68,6 +69,8 @@ Keep the fork limited to the verified engine corrections described in FORK.md. B
 From go/, run the affected DiffTableFunction, DiffStatTableFunction, DiffSummaryTableFunction and UnscopedDiffSystemTable engine tests, including prepared variants. Run view queries in normal and prepared mode and retain the current MIN/MAX and MOD regressions. Use disposable databases. Report test-only dependency differences and environment failures separately from engine failures.
 
 Run ForkMergeCorrections in normal/prepared modes, merge and artifact traversal packages, and a persisted conflict through full garbage collection, native backup/restore and a cold reopen.
+
+Run TestDoltSetGlobalAuthorization, TestUserPrivileges and persistence tests after changing the analyzer authorization pin; verify denied statements leave global values and persisted configuration unchanged, including prepared execution after REVOKE.
 
 ## Child DOX Index
 
