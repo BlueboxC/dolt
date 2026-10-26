@@ -40,7 +40,7 @@ Qualification covers normal/prepared merges in both directions and squash mode, 
 
 ## Branch-log and stable-base follow-up
 
-- [#12157](https://github.com/dolthub/dolt/issues/12157), reported by macneale4: honor `DOLT_LOG('--all')` by selecting every local branch head and using the existing history walker. Keep shared ancestors deduplicated, explicit revisions, two/three-dot ranges, `--not`, table and merge filters, and execution-time prepared options. Ordinary `DOLT_LOG()` still follows the current session head.
+- [#12157](https://github.com/dolthub/dolt/issues/12157), reported by macneale4: honor `DOLT_LOG('--all')` through the existing history walker. The #12209 extension includes local/remote heads and HEAD decoration, preserves explicit revisions, exclusions, table/merge filters and prepared options, and refuses mixed --all/range arguments. Ordinary two/three-dot ranges keep their separate contract. Ordinary `DOLT_LOG()` still follows the current session head.
 - The v2.5.1 base adds native log-table projection and the official file-locks update; the already-carried mixed-case CHECK correction is retained once. The session settings hook leaves MySQL behavior unchanged and does not qualify a DoltgreSQL integration.
 - Raise the standalone module's `klauspost/compress` floor to 1.18.7; Beads already selected that version independently.
 - [#12160](https://github.com/dolthub/dolt/issues/12160) is covered by the existing KV lookup NULL correction from #12100 case 03. Its exact reproduction and normal/prepared controls pass on the previously installed tuple; no duplicate analyzer patch is added.
@@ -142,3 +142,7 @@ Adapt [PR #12198](https://github.com/dolthub/dolt/pull/12198): construct virtual
 ## SQL follow-ups from PR12205
 
 Pin [BlueboxC/go-mysql-server1aa8b38f5b78](https://github.com/BlueboxC/go-mysql-server/commit/1aa8b38f5b78da630065da597096598bd17df318) for correlated lateral filters, session limits and complete error-handler operations. Preserve prior decimal and Full-Text fixes. Additional counter-aware execution fixes conditional/loop handlers that panic in the proposal, with normal/prepared embedded regressions. This does not implement multiple result sets from Dolt #12199. Driver, storage format and external CLI policy are unchanged; consumers must repeat the replacement.
+
+## Remote branch log traversal (#12209)
+
+Adapt [PR #12209](https://github.com/dolthub/dolt/pull/12209) through the existing local-branch --all support: include remote branch heads and the session head, deduplicate starting hashes, preserve HEAD decoration and retain --all in rendered options. Mixed two/three-dot ranges refuse before traversal. Explicit exclusions, table filters, ordinary HEAD reads and the fork's every-common-ancestor three-dot guard remain in force. This SQL query correction grants no new server history or storage authority.

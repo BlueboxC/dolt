@@ -4467,7 +4467,7 @@ var DoltGC = []queries.ScriptTest{
 
 var LogTableFunctionScriptTests = []queries.ScriptTest{
 	{
-		Name: "all branches with exclusions and ranges",
+		Name: "all branch heads with exclusions and mixed-range refusal",
 		SetUpScript: []string{
 			"CREATE TABLE all_log_test (id INT PRIMARY KEY)",
 			"CALL DOLT_COMMIT('-Am', 'all-main')",
@@ -4485,8 +4485,10 @@ var LogTableFunctionScriptTests = []queries.ScriptTest{
 			{Query: "SELECT message FROM DOLT_LOG() WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-main"}}},
 			{Query: "SELECT message FROM DOLT_LOG('--all', 'all-feature') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}, {"all-main"}, {"all-other"}}},
 			{Query: "SELECT message FROM DOLT_LOG('--all', '--not', 'main') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}, {"all-other"}}},
-			{Query: "SELECT message FROM DOLT_LOG('--all', 'main..all-feature') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}, {"all-other"}}},
-			{Query: "SELECT message FROM DOLT_LOG('--all', 'main...all-feature') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}, {"all-other"}}},
+			{Query: "SELECT message FROM DOLT_LOG('--all', 'main..all-feature') WHERE message LIKE 'all-%' ORDER BY message", ExpectedErr: sql.ErrInvalidArgumentDetails},
+			{Query: "SELECT message FROM DOLT_LOG('main..all-feature') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}}},
+			{Query: "SELECT message FROM DOLT_LOG('--all', 'main...all-feature') WHERE message LIKE 'all-%' ORDER BY message", ExpectedErr: sql.ErrInvalidArgumentDetails},
+			{Query: "SELECT message FROM DOLT_LOG('main...all-feature') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}}},
 			{Query: "SELECT commit_hash FROM DOLT_LOG('--all', 'all-feature') GROUP BY commit_hash HAVING COUNT(*) > 1", Expected: []sql.Row{}},
 			{Query: "SELECT message FROM DOLT_LOG('--all', '--tables', 'all_log_test') WHERE message LIKE 'all-%' ORDER BY message", Expected: []sql.Row{{"all-feature"}, {"all-main"}, {"all-other"}}},
 			{Query: "SELECT message FROM DOLT_LOG('--all', '--merges')", Expected: []sql.Row{}},

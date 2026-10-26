@@ -29,7 +29,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - Recursive merge bases reuse upstream 2.6.0's ORT resolver, with the fork's explicit refusal of conflicting virtual bases retained at merge and three-dot diff entry points. Keep deterministic clean-base resolution and branch, working-set and tag references; immutable virtual objects may be materialized.
 - Artifact address traversal retains virtual conflict-base commits during garbage collection and native backup. Rollback after feature writes requires the matching retained data and engine, rather than a binary-only downgrade.
 
-- DOLT_LOG --all traverses all local branch heads through the existing deduplicating history walker. Preserve explicit revision/range exclusions, table filters, prepared options and ordinary HEAD-only reads.
+- DOLT_LOG --all traverses local and remote branch heads with the session head, deduplicating starting hashes and retaining HEAD decoration. Refuse --all mixed with two/three-dot ranges before traversal; preserve explicit exclusions, table filters, prepared options, ordinary HEAD-only reads and the all-common-ancestor three-dot guard.
 
 - Conflict resolution ignores rows already deleted by both branches before touching secondary indexes; keyless Full-Text conflicts still clear their artifacts and retain search results.
 - A nullable column added to an existing ancestor row treats implicit NULL as unchanged. Preserve genuine conflicting inserts and two non-NULL edits.

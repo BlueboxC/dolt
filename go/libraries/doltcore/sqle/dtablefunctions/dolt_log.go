@@ -83,7 +83,7 @@ func (ltfa *LogTableFunctionArgs) validateRevisionStrings() error {
 	// no type validation needed here since getDoltArgs already validates expression types
 
 	for _, revisionStr := range ltfa.revisionStrs {
-		if strings.Contains(revisionStr, "..") && (len(ltfa.revisionStrs) > 1 || len(ltfa.notRevisionStrs) > 0) {
+		if strings.Contains(revisionStr, "..") && (len(ltfa.revisionStrs) > 1 || len(ltfa.notRevisionStrs) > 0 || ltfa.allBranches) {
 			return sql.ErrInvalidArgumentDetails.New(ltfa.Name(), "revision cannot contain '..' or '...' if multiple revisions exist")
 		}
 	}
@@ -273,6 +273,9 @@ func (ltf *LogTableFunction) getOptionsString() string {
 
 	if ltf.showSignature {
 		options = append(options, fmt.Sprintf("--%s", cli.ShowSignatureFlag))
+	}
+	if ltf.allBranches {
+		options = append(options, fmt.Sprintf("--%s", cli.AllFlag))
 	}
 
 	if len(ltf.tableNames) > 0 {
@@ -479,7 +482,7 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 	}
 
 	var commits []*doltdb.Commit
-	if len(revisionValStrs) == 0 && !args.allBranches {
+	if len(revisionValStrs) == 0 {
 		// If no revisions given, use session head
 		commit, err = sess.GetHeadCommit(ctx, sqledb.RevisionQualifiedName())
 		if err != nil {
@@ -516,16 +519,46 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 	}
 
 	if args.allBranches {
-		branches, err := sqledb.DbData().Ddb.GetBranches(ctx)
+		ddb := sqledb.DbData().Ddb
+		branches, err := ddb.GetBranchesWithHashes(ctx)
 		if err != nil {
 			return nil, err
 		}
+		remotes, err := ddb.GetRemotesWithHashes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		heads := make([]hash.Hash, 0, len(branches)+len(remotes))
 		for _, branch := range branches {
-			branchCommit, err := sqledb.DbData().Ddb.ResolveCommitRef(ctx, branch)
+			heads = append(heads, branch.Hash)
+		}
+		for _, remote := range remotes {
+			heads = append(heads, remote.Hash)
+		}
+		// Keep one starting commit per hash, including the session head. This
+		// retains the single-commit iterator and its HEAD decoration when refs alias.
+		seen := make(map[hash.Hash]struct{}, len(commits)+len(heads))
+		for _, commit := range commits {
+			h, err := commit.HashOf()
 			if err != nil {
 				return nil, err
 			}
-			commits = append(commits, branchCommit)
+			seen[h] = struct{}{}
+		}
+		for _, h := range heads {
+			if _, ok := seen[h]; ok {
+				continue
+			}
+			opt, err := ddb.ReadCommit(ctx, h)
+			if err != nil {
+				return nil, err
+			}
+			commit, ok := opt.ToCommit()
+			if !ok {
+				return nil, doltdb.ErrGhostCommitEncountered
+			}
+			seen[h] = struct{}{}
+			commits = append(commits, commit)
 		}
 	}
 
@@ -573,7 +606,17 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 		return ltf.NewLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits[0], matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
 	}
 
-	return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+	iter, err := ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+	if err != nil {
+		return nil, err
+	}
+	if args.allBranches && len(revisionValStrs) == 0 {
+		iter.headHash, err = commits[0].HashOf()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return iter, nil
 }
 
 var _ sql.RowIter = (*logTableFunctionRowIter)(nil)
