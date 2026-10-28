@@ -1,5 +1,9 @@
 # Dolt engine fixes for Beads Continuity
 
+## Keyless unique writes and SQL report corrections
+
+Adapt fulghum's [Dolt PR #12225](https://github.com/dolthub/dolt/pull/12225), addressing skysoul1024's #12219: validate secondary unique keys before insertion and reset builders for rejected rows and REPLACE retries. Preserve unique, nonunique, nullable and partial-index behavior. The analyzer carries the scoped #12218 and #12220–12223 corrections and normal/prepared consumer regressions; retain the existing authorization and SQL fixes. go-jose/v4 selects 4.1.6 for its bounded RSA JWK parsing; its 4096-bit default is a compatibility limit, and it is separate from Dolt's v2 JWT implementation.
+
 The SQL analyzer includes the global-variable authorization correction for [Dolt #12207](https://github.com/dolthub/dolt/issues/12207): SYSTEM_VARIABLES_ADMIN or SUPER is required for global and persisted assignments, with current privileges checked again for bound plans. The server regression verifies limited-user rejection without changing global or persisted values, session assignments, administrative persistence and prepared execution after REVOKE.
 
 This dependency fork starts from official Dolt v2.6.0 at `05e6bceb1a210a7a8d770b74b8ef4825c165c0a8`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads. This release and its SQL analyzer require Go 1.27.3.

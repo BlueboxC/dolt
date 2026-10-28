@@ -58,6 +58,8 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - The analyzer carries the reviewed lateral-filter/session-limit fixes and counter-aware handler execution. Preserve the existing decimal/Full-Text corrections and one-result-set procedure boundary.
 - The analyzer requires SYSTEM_VARIABLES_ADMIN or SUPER for global and persisted SQL SET assignments, including current-privilege checks on retained bound plans. Keep session/user assignments and trusted initialization intact; qualify the SQL server with disposable users and persisted configuration.
 
+- Keyless unique writers validate every secondary key before inserting any index entry. Rejected rows leave no orphaned index records; REPLACE retries reset tuple builders and retain cardinality, partial predicates and ordinary indexes.
+
 ## Work Guidance
 
 - Byte sinks synchronize completed file contents before close and publication. A write, sync or close failure prevents BufferedFileByteSink from renaming its temporary file; preserve the first I/O failure and drain the background writer.
