@@ -24,7 +24,7 @@ import (
 
 	gms "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/enginetest"
-	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
+	"github.com/dolthub/go-mysql-server/enginetest/setup"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
@@ -197,9 +197,9 @@ var defaultSkippedQueries = []string{
 
 // Setup sets the setup scripts for this DoltHarness's engine
 func (d *DoltHarness) Setup(setupData ...[]setup.SetupScript) {
-	d.closeProvider()
+	// The current provider stays open until the next newProvider or Close, since
+	// callers may keep using an engine they already built.
 	d.engine = nil
-	d.provider = nil
 	d.setupData = nil
 	for i := range setupData {
 		d.setupData = append(d.setupData, setupData[i]...)

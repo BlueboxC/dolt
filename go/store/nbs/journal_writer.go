@@ -34,7 +34,7 @@ import (
 	"github.com/dolthub/dolt/go/store/hash"
 )
 
-// journalWriterBuffSize limits the on-demand buffer where journal records are
+// journalWriterBuffSize is the size of the statically allocated buffer where journal records are
 // built before being written to the journal file on disk. There is not a hard limit on the size
 // of records – specifically, some newer data chunking formats (i.e. optimized JSON storage) can
 // produce chunks (and therefore chunk records) that are megabytes in size. The current limit of
@@ -160,7 +160,9 @@ type journalWriter struct {
 	lock        sync.RWMutex
 	batchCrc    uint32
 	currentRoot hash.Hash
-	readers     sync.WaitGroup
+	// readers counts reads of the journal file made without |lock|. They
+	// register under |lock|, and Close waits for them before closing the file.
+	readers sync.WaitGroup
 }
 
 var errJournalWriterClosed = errors.New("journal writer is closed")
@@ -360,6 +362,11 @@ func (wr *journalWriter) readJournalIndex(ctx context.Context, canWrite bool) er
 				return fmt.Errorf("index records do not cover contiguous region (%d != %d)", m.batchStart, prev)
 			}
 			prev = m.batchEnd
+			for _, l := range batch {
+				if l.r.Length > journalWriterBuffSize {
+					return fmt.Errorf("invalid index lookup length %d", l.r.Length)
+				}
+			}
 
 			// |r.end| is expected to point to a root hash record in |wr.journal|
 			// containing a hash equal to |r.lastRoot|, validate this here
@@ -604,6 +611,9 @@ func (wr *journalWriter) flushIndexRecord(ctx context.Context, root hash.Hash, e
 
 // readAt reads len(p) bytes from the journal at offset |off|.
 func (wr *journalWriter) readAt(p []byte, off int64) (n int, err error) {
+	if off < 0 {
+		return 0, fmt.Errorf("journal read at negative offset %d", off)
+	}
 	var bp []byte
 	if off < wr.off {
 		// fill some or all of |p| from |wr.file|
@@ -622,11 +632,29 @@ func (wr *journalWriter) readAt(p []byte, off int64) (n int, err error) {
 		bp = p
 		off -= wr.off
 	}
+	if off > int64(len(wr.buf)-len(bp)) {
+		return n, fmt.Errorf("journal read of %d bytes is past the end of the journal", len(bp))
+	}
 	n += copy(bp, wr.buf[off:])
 	return
 }
 
-// getBytes returns a buffer for writers to copy data into.
+// journalWriterMinBuffSize is the initial capacity of the chunk journal write
+// buffer (64 KB). It is sized to batch multiple compressed chunks per write
+// syscall while keeping the memory footprint per open journal small.
+const journalWriterMinBuffSize = 64 * 1024
+
+// getBytes reserves a contiguous slice of |n| bytes in buf for the caller to
+// populate. The returned slice is only valid until the next call to getBytes or
+// flush.
+//
+// When the buffer has not yet been allocated or cannot fit |n| bytes, getBytes
+// allocates or grows the buffer up to journalWriterBuffSize, sizing to at least
+// journalWriterMinBuffSize to avoid allocation churn on chunk writes.
+//
+// Because chunk records must be formatted as single contiguous slices,
+// individual records cannot exceed journalWriterBuffSize. If |n| exceeds this
+// ceiling, getBytes returns an error to prevent unbounded buffer growth.
 func (wr *journalWriter) getBytes(ctx context.Context, behavior dherrors.FatalBehavior, n int) (buf []byte, err error) {
 	limit := wr.bufLimit
 	if limit == 0 {
@@ -655,7 +683,15 @@ func (wr *journalWriter) getBytes(ctx context.Context, behavior dherrors.FatalBe
 	return
 }
 
-// flush writes buffered data into the journal file.
+// flush writes buffered chunk data in buf to the journal file at off.
+//
+// If buf is empty, flush does nothing.
+//
+// After writing, off advances by the written bytes. Buffers larger than
+// journalWriterMinBuffSize are reset to nil to reclaim memory, while standard
+// buffers are retained to avoid allocation overhead on chunk writes.
+//
+// Any write error encountered is reported according to |behavior|.
 func (wr *journalWriter) flush(ctx context.Context, behavior dherrors.FatalBehavior) (err error) {
 	defer trace.StartRegion(ctx, "flush journal").End()
 	if len(wr.buf) == 0 {
@@ -747,8 +783,7 @@ func (wr *journalWriter) Close() (err error) {
 		logrus.Warnf("journal writer has already been closed (%s)", wr.path)
 		return nil
 	}
-
-	// The exclusive lock prevents registration of new readers.
+	// No new |readers| can register while we hold |lock|.
 	wr.readers.Wait()
 
 	// Let caller fatal on Close.
@@ -803,7 +838,7 @@ func newRangeIndex() rangeIndex {
 }
 
 func estimateRangeCount(info os.FileInfo) uint32 {
-	return uint32(info.Size() / 32)
+	return uint32(info.Size()/32) + journalIndexDefaultMaxNovel
 }
 
 func (idx rangeIndex) get(h hash.Hash) (rng Range, ok bool) {
@@ -837,6 +872,6 @@ func (idx rangeIndex) flatten(ctx context.Context) rangeIndex {
 	for a, r := range idx.novel {
 		idx.cached[toAddr16(a)] = r
 	}
-	idx.novel = make(map[hash.Hash]Range)
+	idx.novel = make(map[hash.Hash]Range, journalIndexDefaultMaxNovel)
 	return idx
 }

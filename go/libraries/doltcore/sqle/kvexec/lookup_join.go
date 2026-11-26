@@ -205,7 +205,7 @@ func (s *kvLookupJoinSource) nextLookupKey(ctx *sql.Context) (val.Tuple, bool, e
 	}
 
 	key, err := s.mapping.dstKeyTuple(ctx, s.key, s.value)
-	return key, key != nil, err
+	return key, true, err
 }
 
 func (s *kvLookupJoinSource) buildRow(ctx *sql.Context, key, value val.Tuple) (sql.Row, error) {
@@ -230,7 +230,6 @@ type lookupMapping struct {
 	split      int
 	keyExprs   []sql.Expression
 	idxColTyps []sql.ColumnExpressionType
-	nullSafe   []bool
 }
 
 func newLookupKeyMapping(
@@ -239,7 +238,6 @@ func newLookupKeyMapping(
 	tgtKeyDesc *val.TupleDesc,
 	keyExprs []sql.Expression,
 	typs []sql.ColumnExpressionType,
-	nullSafe []bool,
 	ns tree.NodeStore,
 ) (*lookupMapping, error) {
 	keyless := schema.IsKeyless(sourceSch)
@@ -324,7 +322,6 @@ func newLookupKeyMapping(
 		pool:       ns.Pool(),
 		keyExprs:   keyExprs,
 		idxColTyps: typs,
-		nullSafe:   nullSafe,
 	}, nil
 }
 
@@ -406,13 +403,8 @@ func (m *lookupMapping) dstKeyTuple(ctx context.Context, srcKey, srcVal val.Tupl
 			from = from - m.split
 		}
 
-		raw := desc.GetField(from, tup)
-		if raw == nil && (to >= len(m.nullSafe) || !m.nullSafe[to]) {
-			m.targetKb.Recycle()
-			return nil, nil
-		}
 		if desc.Types[from].Enc == m.targetKb.Desc.Types[to].Enc {
-			m.targetKb.PutRaw(to, raw)
+			m.targetKb.PutRaw(to, desc.GetField(from, tup))
 		} else {
 			// TODO support GMS-side type conversions
 			return nil, fmt.Errorf("invalid key type conversions should be rejected by lookupMapping.valid()")

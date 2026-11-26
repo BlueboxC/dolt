@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/dolthub/go-mysql-server/enginetest"
-	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
+	"github.com/dolthub/go-mysql-server/enginetest/setup"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,8 +118,8 @@ func TestVirtualMergeBaseRebuiltAfterGC(t *testing.T) {
 // checkRebuiltAfterGC builds |history|, merges branch y into x, which must conflict on table t against a virtual
 // merge base, and garbage collects the virtual merge base. It checks that the conflicts record the merge bases, that
 // the virtual merge base is gone while they remain, that metadata without merge bases cannot rebuild it, that a fresh
-// session reads the same conflicts, |expected| from |query| when set, whatever its JSON merge setting, that rebuilding
-// gives the same root with indexes that match its rows, and that resolving the conflicts commits.
+// session reads the same conflicts, |expected| from |query| when set, whatever its JSON merge setting and time zone,
+// that rebuilding gives the same root with indexes that match its rows, and that resolving the conflicts commits.
 func checkRebuiltAfterGC(t *testing.T, history dtu.CrissCross, query string, expected []sql.Row) {
 	h := newDoltHarness(t)
 	defer h.Close()
@@ -160,7 +160,7 @@ func checkRebuiltAfterGC(t *testing.T, history dtu.CrissCross, query string, exp
 		mergeBases = append(mergeBases, hash.Parse(row[0].(string)))
 	}
 	assert.ElementsMatch(t, mergeBases, meta.MergeBases)
-	cached, err := doltdb.LoadConflictBaseRoot(merging, vrw, ns, meta)
+	cached, err := doltdb.LoadConflictBaseRoot(merging, vrw, ns, meta, hash.Hash{})
 	require.NoError(t, err)
 	cachedHash, err := cached.HashOf()
 	require.NoError(t, err)
@@ -174,14 +174,15 @@ func checkRebuiltAfterGC(t *testing.T, history dtu.CrissCross, query string, exp
 		require.NoError(t, err)
 		require.NotNil(t, source, "garbage collection keeps the merge bases")
 	}
-	_, err = doltdb.LoadConflictBaseRoot(merging, vrw, ns, prolly.ConflictMetadata{BaseRootIsh: meta.BaseRootIsh})
+	_, err = doltdb.LoadConflictBaseRoot(merging, vrw, ns, prolly.ConflictMetadata{BaseRootIsh: meta.BaseRootIsh}, hash.Hash{})
 	assert.Error(t, err, "conflict metadata without merge bases cannot rebuild a collected virtual merge base")
 
 	after := enginetest.NewSession(h)
 	run(after, "CALL DOLT_CHECKOUT('x');")
 	run(after, "SET @@dolt_dont_merge_json = 1;")
+	run(after, "SET time_zone = '-07:00';")
 	assert.Equal(t, before, run(after, query))
-	rebuilt, err := doltdb.LoadConflictBaseRoot(after, vrw, ns, meta)
+	rebuilt, err := doltdb.LoadConflictBaseRoot(after, vrw, ns, meta, hash.Hash{})
 	require.NoError(t, err)
 	rebuiltHash, err := rebuilt.HashOf()
 	require.NoError(t, err)

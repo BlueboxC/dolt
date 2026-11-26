@@ -288,7 +288,8 @@ func (sink *BufferedFileByteSink) backgroundWrite() {
 		sink.ae.SetIfError(err)
 	}
 
-	// FlushToFile can publish the file under a durable manifest next.
+	// FlushToFile may rename this file into place as a table file, so it
+	// must be durable first.
 	if err == nil {
 		err = sink.wr.Sync()
 		sink.ae.SetIfError(err)

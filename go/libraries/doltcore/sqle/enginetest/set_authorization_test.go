@@ -23,7 +23,7 @@ import (
 
 func TestDoltSetGlobalAuthorization(t *testing.T) {
 	dEnv, controller, cfg := startServer(t, true, "127.0.0.1", "")
-	defer func() { controller.Stop(); require.NoError(t, controller.WaitForStop()); dEnv.Close() }()
+	t.Cleanup(func() { controller.Stop(); require.NoError(t, controller.WaitForStop()); dEnv.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	connect := func(user string) *sql.Conn {

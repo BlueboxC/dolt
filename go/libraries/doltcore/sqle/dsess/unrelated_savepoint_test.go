@@ -20,6 +20,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/go-mysql-server/sql"
 	sqltypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/dolthub/go-mysql-server/sql/variables"
 	"testing"
 )
 
@@ -37,10 +38,11 @@ func (unrelatedSavepointProvider) DoltDatabases() []SqlDatabase {
 }
 
 func TestSavepointIgnoresUnrelatedDatabase(t *testing.T) {
-	if _, _, ok := sql.SystemVariables.GetGlobal(TransactionsDisabledSysVar); !ok {
-		sql.SystemVariables.AddSystemVariables([]sql.SystemVariable{&sql.MysqlSystemVariable{Name: TransactionsDisabledSysVar, Scope: sql.GetMysqlScope(sql.SystemVariableScope_Session), Dynamic: true, Type: sqltypes.NewSystemBoolType(TransactionsDisabledSysVar), Default: int8(0)}})
+	vars := variables.NewEngineVariables()
+	if _, _, ok := vars.System.GetGlobal(TransactionsDisabledSysVar); !ok {
+		vars.System.AddSystemVariables([]sql.SystemVariable{&sql.MysqlSystemVariable{Name: TransactionsDisabledSysVar, Scope: sql.GetMysqlScope(sql.SystemVariableScope_Session), Dynamic: true, Type: sqltypes.NewSystemBoolType(TransactionsDisabledSysVar), Default: int8(0)}})
 	}
-	s := DefaultSession(unrelatedSavepointProvider{}, nil)
+	s := DefaultSessionWithVariables(unrelatedSavepointProvider{}, nil, vars)
 	ctx := sql.NewContext(context.Background(), sql.WithSession(s))
 	tx := &DoltTransaction{}
 	if err := s.CreateSavepoint(ctx, tx, "kept"); err != nil {

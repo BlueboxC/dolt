@@ -75,13 +75,13 @@ func createFulltextTable(ctx *sql.Context, name string, root doltdb.RootValue) (
 	gmsDb := memory.NewDatabase("gms_db")
 	gmsTable := memory.NewLocalTable(ctx, gmsDb, name, sqlSch, nil)
 	return &fulltextTable{
-		GMSTable: gmsTable,
-		Table:    tbl,
-		Sch:      sch,
-		SqlSch:   sqlSch.Schema,
-		rows: rows,
- edits: rows.Mutate(),
- pkOrdinals: sqlSch.PkOrdinals,
+		GMSTable:   gmsTable,
+		Table:      tbl,
+		Sch:        sch,
+		SqlSch:     sqlSch.Schema,
+		rows:       rows,
+		edits:      rows.Mutate(),
+		pkOrdinals: sqlSch.PkOrdinals,
 	}, nil
 }
 
@@ -116,7 +116,7 @@ func (table *fulltextTable) PartitionRows(ctx *sql.Context, partition sql.Partit
 	if err != nil {
 		return nil, err
 	}
-	return index.NewProllyRowIterForMap(table.Sch, table.rows, iter, nil), nil
+	return index.NewProllyRowIterForMap(table.Sch, table.rows, iter, nil, sql.ColSet{}), nil
 }
 
 // Inserter implements the interface fulltext.EditableTable.

@@ -4202,6 +4202,236 @@ var DoltBranchScripts = []queries.ScriptTest{
 			},
 		},
 	},
+	{
+		Name: "dolt_branch --orphan creates a parentless commit with the start point's contents",
+		SetUpScript: []string{
+			"create table t (pk int primary key);",
+			"insert into t values (1);",
+			"call dolt_commit('-Am', 'c1');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_branch('--orphan', 'orph');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:    "select count(*) from dolt_log('orph');",
+				Expected: []sql.Row{{1}},
+			},
+			{
+				Query:    "select message like 'Initialize orphan branch orph from %' from dolt_log('orph');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "select pk from t as of 'orph';",
+				Expected: []sql.Row{{1}},
+			},
+			{
+				Query:    "select * from dolt_merge_bases('main', 'orph');",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "select dolt_merge_base('main', 'orph');",
+				Expected: []sql.Row{{nil}},
+			},
+			{
+				Query:          "call dolt_branch('--orphan', 'orph');",
+				ExpectedErrStr: "fatal: A branch named 'orph' already exists.",
+			},
+			{
+				Query:    "call dolt_branch('--orphan', '-f', 'orph', 'HEAD~1');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:    "show tables as of 'orph';",
+				Expected: []sql.Row{},
+				Dialect:  "mysql",
+			},
+			{
+				Query:    "call dolt_checkout('orph');",
+				Expected: []sql.Row{{0, "Switched to branch 'orph'"}},
+			},
+			{
+				Query:    "call dolt_commit('--amend', '-m', 'renamed');",
+				Expected: []sql.Row{{doltCommit}},
+			},
+			{
+				Query:    "select message from dolt_log;",
+				Expected: []sql.Row{{"renamed"}},
+			},
+		},
+	},
+	{
+		Name: "dolt_branch --orphan of the initial commit does not reuse its hash",
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_branch('--orphan', 'alt_root', 'HEAD');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:    "select count(*) from dolt_log('alt_root') where commit_hash in (select commit_hash from dolt_log('main'));",
+				Expected: []sql.Row{{0}},
+			},
+		},
+	},
+	{
+		Name: "dolt_branch --orphan uses the session committer",
+		SetUpScript: []string{
+			"set @@dolt_committer_name = 'Expected Committer';",
+			"set @@dolt_committer_email = 'committer@example.com';",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_branch('--orphan', 'orph');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:    "select committer, email from dolt_log('orph');",
+				Expected: []sql.Row{{"Expected Committer", "committer@example.com"}},
+			},
+		},
+	},
+	{
+		Name: "dolt_rebase refuses to rebase an orphan branch onto an unrelated history",
+		SetUpScript: []string{
+			"create table t (pk int primary key);",
+			"insert into t values (1);",
+			"call dolt_commit('-Am', 'main c1');",
+			"call dolt_branch('--orphan', 'solo');",
+			"call dolt_branch('--orphan', 'orph');",
+			"call dolt_checkout('orph');",
+			"insert into t values (2);",
+			"call dolt_commit('-am', 'orph c1');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:          "call dolt_rebase('main');",
+				ExpectedErrStr: "cannot rebase branch 'orph' onto 'main': no common ancestor",
+			},
+			{
+				Query:          "call dolt_rebase('-i', 'main');",
+				ExpectedErrStr: "cannot rebase branch 'orph' onto 'main': no common ancestor",
+			},
+			{
+				Query:    "select count(*) from dolt_branches where name like 'dolt_rebase_%';",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:    "select count(*) from dolt_log;",
+				Expected: []sql.Row{{2}},
+			},
+			{
+				Query:    "select message from dolt_log limit 1;",
+				Expected: []sql.Row{{"orph c1"}},
+			},
+			{
+				Query:    "call dolt_checkout('solo');",
+				Expected: []sql.Row{{0, "Switched to branch 'solo'"}},
+			},
+			{
+				Query:          "call dolt_rebase('main');",
+				ExpectedErrStr: "cannot rebase branch 'solo' onto 'main': no common ancestor",
+			},
+		},
+	},
+	{
+		Name: "dolt_cherry_pick from an orphan branch",
+		SetUpScript: []string{
+			"create table t (pk int primary key);",
+			"insert into t values (1);",
+			"call dolt_commit('-Am', 'main c1');",
+			"call dolt_branch('--orphan', 'orph');",
+			"call dolt_checkout('orph');",
+			"create table o (pk int primary key);",
+			"insert into o values (10);",
+			"call dolt_commit('-Am', 'orph c1');",
+			"call dolt_checkout('main');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_cherry_pick('orph');",
+				Expected: []sql.Row{{doltCommit, 0, 0, 0}},
+			},
+			{
+				Query:    "select pk from o;",
+				Expected: []sql.Row{{10}},
+			},
+			{
+				Query:    "select pk from t;",
+				Expected: []sql.Row{{1}},
+			},
+			{
+				Query:          "call dolt_cherry_pick('orph~1');",
+				ExpectedErrStr: "cherry-picking a commit without parents is not supported",
+			},
+		},
+	},
+	{
+		Name: "dolt_branch --orphan argument errors",
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:          "call dolt_branch('--orphan');",
+				ExpectedErrStr: "error: invalid usage",
+			},
+			{
+				Query:          "call dolt_branch('--orphan', 'a', 'b', 'c');",
+				ExpectedErrStr: "error: invalid usage",
+			},
+			{
+				Query:          "call dolt_branch('--orphan', '-c', 'main', 'copy');",
+				ExpectedErrStr: "--orphan cannot be used with --copy",
+			},
+			{
+				Query:          "call dolt_branch('--orphan', '-t', 'tracked', 'main');",
+				ExpectedErrStr: "--orphan cannot be used with --track",
+			},
+			{
+				Query:          "call dolt_branch('--orphan', 'orph', 'nosuch');",
+				ExpectedErrStr: "fatal: 'nosuch' is not a commit and a branch 'orph' cannot be created from it",
+			},
+			{
+				Query:          "call dolt_branch('--orphan', 'HEAD');",
+				ExpectedErrStr: "fatal: 'HEAD' is an invalid branch name.",
+			},
+			{
+				Query:    "select count(*) from dolt_branches;",
+				Expected: []sql.Row{{1}},
+			},
+		},
+	},
+	{
+		Name: "dolt_branch refuses names longer than the ref name limit",
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_branch(repeat('a', 1024));",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:          "call dolt_branch(repeat('b', 1025));",
+				ExpectedErrStr: "fatal: '" + strings.Repeat("b", 1025) + "' is an invalid branch name.",
+			},
+			{
+				Query:          "call dolt_branch(repeat('c', 32768));",
+				ExpectedErrStr: "fatal: '" + strings.Repeat("c", 32768) + "' is an invalid branch name.",
+			},
+			{
+				Query:          "call dolt_branch('--orphan', repeat('d', 1025));",
+				ExpectedErrStr: "fatal: '" + strings.Repeat("d", 1025) + "' is an invalid branch name.",
+			},
+			{
+				Query:          "call dolt_branch('-c', 'main', repeat('e', 1025));",
+				ExpectedErrStr: "fatal: '" + strings.Repeat("e", 1025) + "' is not a valid branch name.",
+			},
+			{
+				Query:          "call dolt_branch('-m', repeat('a', 1024), repeat('f', 1025));",
+				ExpectedErrStr: doltdb.ErrInvBranchName.Error(),
+			},
+			{
+				Query:    "select length(name) from dolt_branches order by 1;",
+				Expected: []sql.Row{{4}, {1024}},
+			},
+		},
+	},
 }
 
 var DoltResetTestScripts = []queries.ScriptTest{
@@ -6315,6 +6545,31 @@ var JsonAdaptiveEncodingScriptTests = []queries.ScriptTest{
 }
 
 var DoltTagTestScripts = []queries.ScriptTest{
+	{
+		Name: "dolt-tag: refuses names longer than the ref name limit",
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "CALL DOLT_TAG(repeat('a', 1024), 'HEAD')",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				Query:          "CALL DOLT_TAG(repeat('b', 1025), 'HEAD')",
+				ExpectedErrStr: doltdb.ErrInvTagName.Error(),
+			},
+			{
+				Query:          "CALL DOLT_TAG(repeat('c', 65536), 'HEAD')",
+				ExpectedErrStr: doltdb.ErrInvTagName.Error(),
+			},
+			{
+				Query:          "CALL DOLT_TAG(repeat('d', 65537), 'HEAD')",
+				ExpectedErrStr: doltdb.ErrInvTagName.Error(),
+			},
+			{
+				Query:    "SELECT length(tag_name) FROM dolt_tags",
+				Expected: []sql.Row{{1024}},
+			},
+		},
+	},
 	{
 		Name: "dolt-tag: SQL create tags",
 		SetUpScript: []string{
@@ -8645,228 +8900,6 @@ var DoltSystemVariables = []queries.ScriptTest{
 					{"dolt_status_ignored"},
 					{"dolt_workspace_test"},
 					{"test"},
-				},
-			},
-		},
-	},
-}
-
-// DoltTempTableScripts tests temporary tables.
-// Temporary tables are not supported in GMS, eventually should move those tests there.
-var DoltTempTableScripts = []queries.ScriptTest{
-	{
-		Name: "temporary and non-temporary table name collisions",
-		SetUpScript: []string{
-			"create table t1 (id varchar(100))",
-			"insert into t1 values ('this is a non-temporary table')",
-			"create temporary table t1 (id varchar(100))", // okay to create temporary table with the same name as a non-temporary table
-			"insert into t1 values ('this is a temporary table')",
-			"create temporary table t2 (id int)",
-			"create table t2 (id int)", // okay to create a non-temporary table with the same name as a temporary table
-			"create temporary table t3 (id int)",
-		},
-		Assertions: []queries.ScriptTestAssertion{
-			{
-				// should show temporary table t1
-				Query:    "select * from t1",
-				Expected: []sql.Row{{"this is a temporary table"}},
-			},
-			{
-				// cannot create a temporary table with the same name as another temporary table
-				Query:       "create temporary table t3 (id int)",
-				ExpectedErr: sql.ErrTableAlreadyExists,
-			},
-			{
-				// should show temporary table
-				Query:    "show create table t1",
-				Expected: []sql.Row{{"t1", "CREATE TEMPORARY TABLE `t1` (\n  `id` varchar(100)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"}},
-			},
-			{
-				// should drop temporary table t1
-				Query:    "drop table t1",
-				Expected: []sql.Row{{types.NewOkResult(0)}},
-			},
-			{
-				// should show non-temporary table that was created before
-				Query:    "show create table t1",
-				Expected: []sql.Row{{"t1", "CREATE TABLE `t1` (\n  `id` varchar(100)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"}},
-			},
-		},
-	},
-	{
-		Name: "temporary table supports auto increment",
-		SetUpScript: []string{
-			"create temporary table t (i int primary key auto_increment)",
-		},
-		Assertions: []queries.ScriptTestAssertion{
-			{
-				Query: "show create table t;",
-				Expected: []sql.Row{
-					{"t", "CREATE TEMPORARY TABLE `t` (\n" +
-						"  `i` int NOT NULL AUTO_INCREMENT,\n" +
-						"  PRIMARY KEY (`i`)\n" +
-						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
-				},
-			},
-			{
-				Query: "insert into t values (), (), ()",
-				Expected: []sql.Row{
-					{types.OkResult{RowsAffected: 3, InsertID: 1}},
-				},
-			},
-			{
-				Query: "show create table t;",
-				Expected: []sql.Row{
-					{"t", "CREATE TEMPORARY TABLE `t` (\n" +
-						"  `i` int NOT NULL AUTO_INCREMENT,\n" +
-						"  PRIMARY KEY (`i`)\n" +
-						") ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
-				},
-			},
-			{
-				Query: "select * from t",
-				Expected: []sql.Row{
-					{1},
-					{2},
-					{3},
-				},
-			},
-			{
-				Query: "insert into t values (100), (1000)",
-				Expected: []sql.Row{
-					{types.OkResult{RowsAffected: 2, InsertID: 100}},
-				},
-			},
-			{
-				Query: "show create table t;",
-				Expected: []sql.Row{
-					{"t", "CREATE TEMPORARY TABLE `t` (\n" +
-						"  `i` int NOT NULL AUTO_INCREMENT,\n" +
-						"  PRIMARY KEY (`i`)\n" +
-						") ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
-				},
-			},
-			{
-				Query: "insert into t values (), (), ()",
-				Expected: []sql.Row{
-					{types.OkResult{RowsAffected: 3, InsertID: 0x3e9}},
-				},
-			},
-			{
-				Query: "select * from t",
-				Expected: []sql.Row{
-					{1},
-					{2},
-					{3},
-					{100},
-					{1000},
-					{1001},
-					{1002},
-					{1003},
-				},
-			},
-		},
-	},
-	{
-		Name: "temporary table tag collision",
-		SetUpScript: []string{
-			"CREATE TABLE note(a int, b int, userid int);",
-		},
-		Assertions: []queries.ScriptTestAssertion{
-			{
-				Query: "CREATE TEMPORARY TABLE tmp_tbl(a int, b int, c int, d int, e int, f int, g int);",
-				Expected: []sql.Row{
-					{types.NewOkResult(0)},
-				},
-			},
-		},
-	},
-	{
-		Name:    "drop temporary table behavior",
-		Dialect: "mysql",
-		SetUpScript: []string{
-			"create table t (i int);",
-			"create temporary table tmp (i int);",
-		},
-		Assertions: []queries.ScriptTestAssertion{
-			{
-				Query: "show create table tmp;",
-				Expected: []sql.Row{
-					{"tmp", "CREATE TEMPORARY TABLE `tmp` (\n" +
-						"  `i` int\n" +
-						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
-				},
-			},
-			{
-				Query: "drop temporary table tmp;",
-				Expected: []sql.Row{
-					{types.NewOkResult(0)},
-				},
-			},
-
-			{
-				Query: "create temporary table t (i int, j int);",
-				Expected: []sql.Row{
-					{types.NewOkResult(0)},
-				},
-			},
-			{
-				Query: "show create table t;",
-				Expected: []sql.Row{
-					{"t", "CREATE TEMPORARY TABLE `t` (\n" +
-						"  `i` int,\n" +
-						"  `j` int\n" +
-						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
-				},
-			},
-			{
-				Query: "drop temporary table t;",
-				Expected: []sql.Row{
-					{types.NewOkResult(0)},
-				},
-			},
-			{
-				Query: "show create table t;",
-				Expected: []sql.Row{
-					{"t", "CREATE TABLE `t` (\n" +
-						"  `i` int\n" +
-						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
-				},
-			},
-			{
-				Query:       "drop temporary table t;",
-				ExpectedErr: sql.ErrUnknownTable,
-			},
-		},
-	},
-	{
-		Name:    "temporary tables in stored procedures",
-		Dialect: "mysql",
-		SetUpScript: []string{
-			`
-create procedure proc()
-begin
-  create temporary table tmp (i int primary key);
-  insert into tmp values (1), (2), (3);
-  select * from tmp;
-end;
-`,
-		},
-		Assertions: []queries.ScriptTestAssertion{
-			{
-				Query: "call proc();",
-				Expected: []sql.Row{
-					{1},
-					{2},
-					{3},
-				},
-			},
-			{
-				Query: "select * from tmp;",
-				Expected: []sql.Row{
-					{1},
-					{2},
-					{3},
 				},
 			},
 		},

@@ -490,7 +490,7 @@ func (itr *prollyConflictRowIter) nextConflictVals(ctx *sql.Context) (confVal Co
 // the currently loaded maps. |baseHash| and |theirHash| are table hashes.
 func (itr *prollyConflictRowIter) loadTableMaps(ctx *sql.Context, meta prolly.ConflictMetadata, theirHash hash.Hash) error {
 	if baseHash := meta.BaseRootIsh; itr.baseHash.Compare(baseHash) != 0 {
-		rv, err := doltdb.LoadConflictBaseRoot(ctx, itr.vrw, itr.ns, meta)
+		rv, err := doltdb.LoadConflictBaseRoot(ctx, itr.vrw, itr.ns, meta, theirHash)
 		if err != nil {
 			return err
 		}
@@ -567,7 +567,7 @@ func newProllyConflictOurTableUpdater(ctx *sql.Context, ct ProllyConflictsTable)
 	// writer construction. The conflicts-table Updater already admitted the
 	// caller via checkConflictsTableWriteAccess; without this marker the inner
 	// source-table Updater factory would reject a merge-permission caller.
-	dbName, branch := doltdb.SplitRevisionDbName(ct.db.RevisionQualifiedName())
+	dbName, branch := ct.db.AliasedName(), ct.db.Revision()
 	markedCtx := ctx.WithContext(dsess.WithConflictsBypass(ctx.Context, dsess.ConflictsBypassMarker{
 		DbName:  dbName,
 		Branch:  branch,
@@ -646,10 +646,8 @@ func newProllyConflictDeleter(ctx *sql.Context, ct ProllyConflictsTable) *prolly
 
 	vd := ct.ourSch.GetValueDescriptor(ct.root.NodeStore())
 	vB := val.NewTupleBuilder(vd, ct.artM.NodeStore())
-	baseVB := vB
-	if schema.IsKeyless(ct.ourSch) {
-		baseVB = val.NewTupleBuilder(ct.baseSch.GetValueDescriptor(ct.root.NodeStore()), ct.artM.NodeStore())
-	}
+	// base rows must be hashed with the base schema, which may differ from ours
+	baseVB := val.NewTupleBuilder(ct.baseSch.GetValueDescriptor(ct.root.NodeStore()), ct.artM.NodeStore())
 	p := ct.artM.Pool()
 
 	// The conflicts table leaves out virtual columns.
@@ -734,9 +732,9 @@ func (cd *prollyConflictDeleter) putKeylessHash(ctx *sql.Context, r sql.Row) err
 		// use our cols
 		rowVals = r[1+cd.baseColSize : 1+cd.baseColSize+cd.ourColSize]
 	} else {
-		// The base row hash uses its own physical types and column order.
-		vB = cd.baseVB
+		// use base cols
 		rowVals = r[1 : 1+cd.baseColSize]
+		vB = cd.baseVB
 	}
 
 	// init cardinality to 0

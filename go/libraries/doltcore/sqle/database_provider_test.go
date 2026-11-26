@@ -313,11 +313,11 @@ func TestCreatingDatabaseReservation(t *testing.T) {
 	t.Run("a deleting database also conflicts case-insensitively", func(t *testing.T) {
 		_, pro := setup(t)
 		pro.mu.Lock()
-		pro.deletingDatabases[formatDbMapKeyName("delDB")] = struct{}{}
+		pro.deletingDatabases[doltdb.NewDbKey("delDB")] = struct{}{}
 		pro.mu.Unlock()
 		t.Cleanup(func() {
 			pro.mu.Lock()
-			delete(pro.deletingDatabases, formatDbMapKeyName("delDB"))
+			delete(pro.deletingDatabases, doltdb.NewDbKey("delDB"))
 			pro.mu.Unlock()
 		})
 
@@ -508,11 +508,57 @@ func TestDroppedDatabaseReportsNotFound(t *testing.T) {
 	pro := sess.Provider().(*DoltDatabaseProvider)
 
 	require.NoError(t, ExecuteSqlOnEngine(sqlCtx, engine, "CREATE DATABASE mytest;"))
+	require.NoError(t, ExecuteSqlOnEngine(sqlCtx, engine, "CREATE TABLE mytest.cache_probe(id INT PRIMARY KEY,n INT,CONSTRAINT ck CHECK(n>=0));"))
 	stale, ok, err := pro.SessionDatabase(sqlCtx, "mytest")
 	require.NoError(t, err)
 	require.True(t, ok)
 	_, err = stale.GetRoot(sqlCtx)
 	require.NoError(t, err)
+
+	// Lock the metadata table to a retained root so these cache entry points
+	// reach their own missing-session-state check after the database disappears.
+	retainedRoot, err := stale.GetRoot(sqlCtx)
+	require.NoError(t, err)
+	retainedTable, found, err := retainedRoot.GetTable(sqlCtx, doltdb.TableName{Name: "cache_probe"})
+	require.NoError(t, err)
+	require.True(t, found)
+	retainedSchema, err := retainedTable.GetSchema(sqlCtx)
+	require.NoError(t, err)
+	tableHandle, err := NewDoltTable(sqlCtx, "cache_probe", retainedSchema, retainedTable, stale, editor.Options{})
+	require.NoError(t, err)
+	lockedTable, err := tableHandle.LockedToRoot(sqlCtx, retainedRoot)
+	require.NoError(t, err)
+	locked := lockedTable.(*DoltTable)
+
+	t.Run("locked root cache boundaries report missing database", func(t *testing.T) {
+		missingSession := dsess.DefaultSession(triggerLookupFailure{DoltDatabaseProvider: pro}, nil)
+		missingCtx := sql.NewContext(ctx, sql.WithSession(missingSession))
+		_, found, err := missingSession.LookupDbState(missingCtx, stale.RevisionQualifiedName())
+		require.NoError(t, err)
+		require.False(t, found)
+		for _, name := range []string{"indexes", "checks"} {
+			t.Run(name, func(t *testing.T) {
+				var err error
+				if name == "indexes" {
+					_, err = locked.GetIndexes(missingCtx)
+				} else {
+					_, err = locked.GetChecks(missingCtx)
+				}
+				require.Error(t, err)
+				assert.True(t, sql.ErrDatabaseNotFound.Is(err), "cache boundary lost error kind: %v", err)
+			})
+		}
+	})
+
+	t.Run("locked root cache boundaries preserve real lookup error", func(t *testing.T) {
+		failure := sql.ErrInvalidType.New("cache lookup sentinel")
+		brokenSession := dsess.DefaultSession(triggerLookupFailure{DoltDatabaseProvider: pro, failure: failure}, nil)
+		brokenCtx := sql.NewContext(ctx, sql.WithSession(brokenSession))
+		_, err := locked.GetIndexes(brokenCtx)
+		assert.Equal(t, failure, err)
+		_, err = locked.GetChecks(brokenCtx)
+		assert.Equal(t, failure, err)
+	})
 
 	require.NoError(t, ExecuteSqlOnEngine(sqlCtx, engine, "DROP DATABASE mytest;"))
 
@@ -548,4 +594,36 @@ func TestDroppedDatabaseReportsNotFound(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, ok)
 	})
+
+	t.Run("GetIndexes on retained table reports typed missing database", func(t *testing.T) {
+		_, err := locked.GetIndexes(sqlCtx)
+		require.Error(t, err)
+		assert.True(t, sql.ErrDatabaseNotFound.Is(err), "unexpected error: %v", err)
+	})
+
+	t.Run("GetChecks on retained table reports typed missing database", func(t *testing.T) {
+		_, err := locked.GetChecks(sqlCtx)
+		require.Error(t, err)
+		assert.True(t, sql.ErrDatabaseNotFound.Is(err), "unexpected error: %v", err)
+	})
+}
+
+// TestRevisionDbCacheMixedCase checks that a revision database resolved by a mixed-case name is found again in the
+// session's cache. The cache once stored lower-cased keys but looked them up with the revision's original case.
+func TestRevisionDbCacheMixedCase(t *testing.T) {
+	_, sqlCtx, pro, dEnv := newProviderEngine(t)
+	ctx := context.Background()
+	ddb := dEnv.DoltDB(ctx)
+	require.NoError(t, ddb.NewBranchAtCommit(ctx, ref.NewBranchRef("Feature"), headCommit(ctx, t, ddb, "main"), nil))
+
+	cache := dsess.DSessFromSess(sqlCtx.Session).DatabaseCache(sqlCtx)
+	for _, name := range []string{"dolt/Feature", "dolt@Feature", "DOLT/feature"} {
+		t.Run(name, func(t *testing.T) {
+			_, ok, err := pro.SessionDatabase(sqlCtx, name)
+			require.NoError(t, err)
+			require.True(t, ok)
+			_, ok = cache.GetCachedRevisionDb(doltdb.ParseQualifiedDbName(name), name)
+			require.True(t, ok)
+		})
+	}
 }

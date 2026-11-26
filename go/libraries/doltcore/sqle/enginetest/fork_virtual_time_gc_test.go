@@ -6,7 +6,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/dolthub/dolt/go/store/hash"
 	"github.com/dolthub/go-mysql-server/enginetest"
-	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
+	"github.com/dolthub/go-mysql-server/enginetest/setup"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,7 +63,8 @@ func checkForkTimeBaseAfterGC(t *testing.T, history dtu.CrissCross, query string
 		mergeBases = append(mergeBases, hash.Parse(row[0].(string)))
 	}
 	assert.ElementsMatch(t, mergeBases, meta.MergeBases)
-	cached, err := doltdb.LoadConflictBaseRoot(merging, vrw, ns, meta)
+	theirRootIsh := hash.Parse(run(merging, "SELECT HASHOF('y');")[0][0].(string))
+	cached, err := doltdb.LoadConflictBaseRoot(merging, vrw, ns, meta, theirRootIsh)
 	require.NoError(t, err)
 	cachedHash, err := cached.HashOf()
 	require.NoError(t, err)
@@ -86,7 +87,7 @@ func checkForkTimeBaseAfterGC(t *testing.T, history dtu.CrissCross, query string
 	// Exercise the missing-cache fallback without removing the retained object.
 	missing := meta
 	missing.BaseRootIsh = hash.Of([]byte("missing cached virtual base"))
-	rebuilt, err := doltdb.LoadConflictBaseRoot(after, vrw, ns, missing)
+	rebuilt, err := doltdb.LoadConflictBaseRoot(after, vrw, ns, missing, theirRootIsh)
 	require.NoError(t, err)
 	rebuiltHash, err := rebuilt.HashOf()
 	require.NoError(t, err)

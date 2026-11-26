@@ -13,7 +13,7 @@ import (
 func TestAddedNullableColumnMerge(t *testing.T) {
 	for _, prepared := range []bool{false, true} {
 		for _, reverse := range []bool{false, true} {
-			for _, kind := range []string{"backfill", "explicit-null", "one-sided-column", "both-values", "new-row", "non-null-default"} {
+			for _, kind := range []string{"backfill", "explicit-null", "one-sided-column", "both-values", "new-row", "non-null-default", "non-null-default-both-edited"} {
 				t.Run(fmt.Sprintf("prepared=%v/reverse=%v/%s", prepared, reverse, kind), func(t *testing.T) {
 					setup := []string{"CREATE TABLE t(id INT PRIMARY KEY,a VARCHAR(100))"}
 					if kind != "new-row" {
@@ -21,7 +21,7 @@ func TestAddedNullableColumnMerge(t *testing.T) {
 					}
 					setup = append(setup, "CALL DOLT_COMMIT('-Am','base')", "CALL DOLT_BRANCH('other')")
 					column := "ALTER TABLE t ADD COLUMN c INT"
-					if kind == "non-null-default" {
+					if kind == "non-null-default" || kind == "non-null-default-both-edited" {
 						column += " DEFAULT 7"
 					}
 					setup = append(setup, column)
@@ -42,7 +42,7 @@ func TestAddedNullableColumnMerge(t *testing.T) {
 					if kind == "explicit-null" {
 						setup = append(setup, "UPDATE t SET c=NULL")
 					}
-					if kind == "both-values" {
+					if kind == "both-values" || kind == "non-null-default-both-edited" {
 						setup = append(setup, "UPDATE t SET c=6")
 					}
 					setup = append(setup, "CALL DOLT_COMMIT('-am','other')", "SET autocommit=0", "SET @@dolt_allow_commit_conflicts=1")
@@ -51,7 +51,7 @@ func TestAddedNullableColumnMerge(t *testing.T) {
 					} else {
 						setup = append(setup, "CALL DOLT_CHECKOUT('main')", "CALL DOLT_MERGE('other')")
 					}
-					conflict := kind == "both-values" || kind == "new-row" || kind == "non-null-default"
+					conflict := kind == "both-values" || kind == "new-row" || kind == "non-null-default-both-edited"
 					expected := 0
 					if conflict {
 						expected = 1

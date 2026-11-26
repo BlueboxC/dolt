@@ -115,8 +115,7 @@ func (s journalChunkSource) getMany(ctx context.Context, eg *errgroup.Group, req
 // buffer. Chunks already flushed to the journal file are immutable while the
 // writer is open, so they are read asynchronously without the lock, keeping
 // journal writes from waiting on reads or |found| callbacks. A |readers| pin
-// per worker keeps the file open until its callbacks return. At most 16 workers
-// retain a file-backed chunk at once, rather than buffering the complete batch.
+// per read keeps the file open until its callback returns.
 func (s journalChunkSource) getManyCompressed(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, ToChunker), keeper keeperF, stats *Stats) (bool, gcBehavior, error) {
 	defer trace.StartRegion(ctx, "journalChunkSource.getManyCompressed").End()
 
@@ -230,7 +229,7 @@ func (s journalChunkSource) reader(ctx context.Context, behavior dherrors.FatalB
 
 func (s journalChunkSource) getRecordRanges(ctx context.Context, behavior dherrors.FatalBehavior, requests []getRecord, keeper keeperF) (map[hash.Hash]Range, gcBehavior, error) {
 	ranges := make(map[hash.Hash]Range, len(requests))
-	for _, req := range requests {
+	for i, req := range requests {
 		if req.found {
 			continue
 		}
@@ -244,7 +243,7 @@ func (s journalChunkSource) getRecordRanges(ctx context.Context, behavior dherro
 		if keeper != nil && keeper(h) {
 			return nil, gcBehavior_Block, nil
 		}
-		req.found = true // update |requests|
+		requests[i].found = true // update |requests|
 		ranges[h] = rng
 	}
 	return ranges, gcBehavior_Continue, nil

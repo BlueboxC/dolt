@@ -16,6 +16,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -59,11 +60,12 @@ type SqlEngine struct {
 	ContextFactory        sql.ContextFactory
 	dsessFactory          sessionFactory
 	engine                *gms.Engine
-	variables             *sql.EngineVariables // nil when the engine shares the global registries
+	variables             *sql.EngineVariables
 	fs                    filesys.Filesys
 	clusterController     *cluster.Controller
 	branchActivityTracker *doltdb.BranchActivityTracker
 	rebasedDbs            map[string]dsess.SqlDatabase
+	ownedMrEnv            *env.MultiRepoEnv // built by NewSqlEngineForEnv; closed after the provider
 }
 
 type sessionFactory func(mysqlSess *sql.BaseSession, pro sql.DatabaseProvider) (*dsess.DoltSession, error)
@@ -86,7 +88,7 @@ type SqlEngineConfig struct {
 	Bulk                       bool
 	JwksConfig                 []servercfg.JwksConfig
 	SystemVariables            SystemVariables
-	// EngineVariables holds a bundle initialized before engine construction.
+	// EngineVariables is the engine's variable bundle, initialized before construction. Required.
 	EngineVariables         *sql.EngineVariables
 	ClusterController       *cluster.Controller
 	AutoGCController        *sqle.AutoGCController
@@ -105,16 +107,27 @@ type SqlEngineConfig struct {
 	ProviderFactory sqle.ProviderFactory
 
 	FatalBehavior dherrors.FatalBehavior
+
+	// GCSafepointController is shared by engine construction and every session the engine creates. If nil, the
+	// engine creates its own.
+	GCSafepointController *gcctx.GCSafepointController
 }
 
 type SqlEngineConfigOption func(*SqlEngineConfig)
 
-// NewSqlEngine returns a SqlEngine
+// ErrNilEngineVariables is returned when an engine is configured without an engine variable bundle.
+var ErrNilEngineVariables = errors.New("engine: SqlEngineConfig.EngineVariables is required")
+
+// NewSqlEngine returns a SqlEngine. |config.EngineVariables| is required.
 func NewSqlEngine(
 	ctx context.Context,
 	mrEnv *env.MultiRepoEnv,
 	config *SqlEngineConfig,
 ) (*SqlEngine, error) {
+	if config == nil || config.EngineVariables == nil {
+		return nil, ErrNilEngineVariables
+	}
+
 	// Context validation is a testing mode that we run Dolt in
 	// during integration tests. It asserts that `context.Context`
 	// instances which reach the storage layer have gone through
@@ -128,7 +141,13 @@ func NewSqlEngine(
 		valctx.EnableContextValidation()
 	}
 
-	gcSafepointController := gcctx.NewGCSafepointController()
+	var gcSafepointController *gcctx.GCSafepointController
+	if config != nil {
+		gcSafepointController = config.GCSafepointController
+	}
+	if gcSafepointController == nil {
+		gcSafepointController = gcctx.NewGCSafepointController()
+	}
 	ctx = gcctx.WithGCSafepointController(ctx, gcSafepointController)
 
 	defer gcctx.SessionEnd(ctx)
@@ -137,7 +156,7 @@ func NewSqlEngine(
 
 	// Thread DB load params into each environment before any DB is loaded.
 	// (For already-loaded envs, these will not affect the existing instance.)
-	if config != nil && len(config.DBLoadParams) > 0 {
+	if len(config.DBLoadParams) > 0 {
 		_ = mrEnv.Iter(func(_ string, dEnv *env.DoltEnv) (stop bool, err error) {
 			if dEnv.DBLoadParams == nil {
 				dEnv.DBLoadParams = maps.Clone(config.DBLoadParams)
@@ -149,13 +168,8 @@ func NewSqlEngine(
 	}
 
 	// Some database initialization logic depends on system variables, load them before the databases
-	// Without a bundle the engine shares the global registries, as callers that
-	// predate engine-owned variables expect.
 	engineVars := config.EngineVariables
-	var vars sql.SystemVariableRegistry = sql.SystemVariables
-	if engineVars != nil {
-		vars = engineVars.System
-	}
+	vars := engineVars.System
 	if err := mrEnv.Iter(func(name string, _ *env.DoltEnv) (bool, error) {
 		dsess.DefineSystemVariablesForDBInRegistry(vars, name)
 		return false, nil
@@ -173,6 +187,17 @@ func NewSqlEngine(
 	}
 
 	bThreads := sql.NewBackgroundThreads()
+	sqlEngine := &SqlEngine{}
+	initialized := false
+	// On failure, Close releases whatever has been recorded on |sqlEngine| so far.
+	defer func() {
+		if !initialized {
+			if sqlEngine.engine == nil {
+				_ = bThreads.Shutdown()
+			}
+			_ = sqlEngine.Close()
+		}
+	}()
 	var runAsyncThreads sqle.RunAsyncThreads
 	dbs, runAsyncThreads, err = sqle.ApplyReplicationConfigWithRegistry(bootstrapCtx, mrEnv, cli.CliOut, vars, dbs...)
 	if err != nil {
@@ -225,9 +250,10 @@ func NewSqlEngine(
 	default:
 		return nil, fmt.Errorf("provider %T must be or wrap a *sqle.DoltDatabaseProvider", engineProvider)
 	}
+	sqlEngine.provider = pro
 
 	pro.SetRemoteDialer(mrEnv.RemoteDialProvider())
-	if config != nil && len(config.DBLoadParams) > 0 {
+	if len(config.DBLoadParams) > 0 {
 		pro.SetDBLoadParams(config.DBLoadParams)
 	}
 
@@ -238,21 +264,15 @@ func NewSqlEngine(
 		config.ClusterController.SetDropDatabase(pro.DropDatabase)
 	}
 
-	sqlEngine := &SqlEngine{}
 	// Create the engine
 	engine := gms.New(analyzer.NewBuilder(engineProvider).AddOverrides(config.EngineOverrides).Build(), &gms.Config{
 		IsReadOnly:      config.IsReadOnly,
 		IsServerLocked:  config.IsServerLocked,
 		EngineVariables: engineVars,
 	}).WithBackgroundThreads(bThreads)
+	sqlEngine.engine = engine
 
-	primaryController := configureBinlogPrimaryController(engine)
-	initialized := false
-	defer func() {
-		if !initialized {
-			primaryController.Close()
-		}
-	}()
+	configureBinlogPrimaryController(engine)
 
 	config.ClusterController.SetIsStandbyCallback(func(isStandby bool) {
 		pro.SetIsStandby(isStandby)
@@ -331,24 +351,15 @@ func NewSqlEngine(
 
 	branchActivityTracker := doltdb.NewBranchActivityTracker(ctx, config.BranchActivityTracking)
 	sqlEngine.branchActivityTracker = branchActivityTracker
-	defer func() {
-		if !initialized {
-			branchActivityTracker.Close()
-		}
-	}()
 
 	engine.Analyzer.ExecBuilder = kvexec.NewExecBuilder(engine.Analyzer.Overrides)
 	engine.Analyzer.ExecBuilder.Runner = engine.Analyzer.Runner
 	sessFactory := doltSessionFactory(pro, statsPro, mrEnv.Config(), bcController, gcSafepointController, config.Autocommit, branchActivityTracker)
-	sqlEngine.provider = pro
 	sqlEngine.dsessFactory = sessFactory
 	sqlEngine.ContextFactory = func(ctx context.Context, opts ...sql.ContextOption) *sql.Context {
-		if engineVars != nil {
-			opts = append([]sql.ContextOption{sql.WithEngineVariables(engineVars)}, opts...)
-		}
+		opts = append([]sql.ContextOption{sql.WithEngineVariables(engineVars)}, opts...)
 		return sqlContextFactory(ctx, opts...)
 	}
-	sqlEngine.engine = engine
 	sqlEngine.variables = engineVars
 	sqlEngine.fs = pro.FileSystem()
 	sqlEngine.clusterController = config.ClusterController
@@ -430,7 +441,7 @@ func applySystemVariables(ctx *sql.Context, cfg SystemVariables) error {
 	if cfg == nil {
 		return nil
 	}
-	return sqle.AssignSystemVariables(ctx, cfg)
+	return ctx.SystemVariables().AssignValues(ctx, cfg)
 }
 
 // InitStats initializes stats threads. We separate construction
@@ -575,6 +586,9 @@ func (se *SqlEngine) Close() error {
 	}
 	for _, db := range se.rebasedDbs {
 		db.Close()
+	}
+	if se.ownedMrEnv != nil {
+		err = errors.Join(err, se.ownedMrEnv.Close(context.Background()))
 	}
 	return err
 }
@@ -808,11 +822,12 @@ func NewSqlEngineForEnv(ctx context.Context, dEnv *env.DoltEnv, options ...Confi
 		config,
 	)
 	if err != nil {
-		return nil, "", err
+		return nil, "", errors.Join(err, mrEnv.Close(ctx))
 	}
+	engine.ownedMrEnv = mrEnv
 
 	if err := engine.InitStats(ctx); err != nil {
-		return nil, "", err
+		return nil, "", errors.Join(err, engine.Close())
 	}
 
 	return engine, mrEnv.GetFirstDatabase(), err

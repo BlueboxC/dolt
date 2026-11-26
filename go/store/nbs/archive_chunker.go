@@ -15,7 +15,6 @@
 package nbs
 
 import (
-	"crypto/sha256"
 	"sync"
 
 	"github.com/dolthub/gozstd"
@@ -30,12 +29,12 @@ import (
 //
 // We also track the compression dictionary (CDict) because we sometimes need it too.
 type DecompBundle struct {
-	dDict          *gozstd.DDict
-	cDict          *gozstd.CDict
-	rawDictionary  *[]byte
-	dictionaryHash [sha256.Size]byte
-	cDictOnce      sync.Once
-	cDictErr       error
+	dDict         *gozstd.DDict
+	cDict         *gozstd.CDict
+	rawDictionary *[]byte
+	contentKey    hash.Hash
+	cDictOnce     sync.Once
+	cDictErr      error
 }
 
 // NewDecompBundle creates a new DecompBundle from a zStd compressed dictionary. The input should be the same
@@ -51,13 +50,7 @@ func NewDecompBundle(compressedDict []byte) (*DecompBundle, error) {
 		return nil, err
 	}
 
-	return &DecompBundle{dDict: dict, rawDictionary: &rawDict, dictionaryHash: sha256.Sum256(rawDict)}, nil
-}
-
-// Copying an already-compressed chunk needs no compression dictionary.
-func (b *DecompBundle) compressionDictionary() (*gozstd.CDict, error) {
-	b.cDictOnce.Do(func() { b.cDict, b.cDictErr = gozstd.NewCDict(*b.rawDictionary) })
-	return b.cDict, b.cDictErr
+	return &DecompBundle{dDict: dict, rawDictionary: &rawDict, contentKey: hash.Of(rawDict)}, nil
 }
 
 type ArchiveToChunker struct {
@@ -103,4 +96,9 @@ func (a *ArchiveToChunker) IsGhost() bool {
 // CompressedSize returns the size of the compressed chunk data, but does not include the size of the dictionary.
 func (a *ArchiveToChunker) CompressedSize() uint32 {
 	return uint32(len(a.chunkData))
+}
+
+func (b *DecompBundle) compressionDictionary() (*gozstd.CDict, error) {
+	b.cDictOnce.Do(func() { b.cDict, b.cDictErr = gozstd.NewCDict(*b.rawDictionary) })
+	return b.cDict, b.cDictErr
 }

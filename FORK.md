@@ -1,12 +1,20 @@
 # Dolt engine fixes for Beads Continuity
 
+## Stable v2.7.6 base
+
+The maintained stack uses Dolt v2.7.6 `1dc4f710c87b75f8560d168e8df4fd2bd391834f`, GMS `a5728034101f276c024d3478e9f08b4c5f4bd786` and Vitess `v0.0.0-20261120232051-da8944cd9673`. The module minimum is Go 1.27.3 and qualification uses Go 1.27.4. Keep at least go-jose/v4 4.1.7, klauspost/compress 1.20.2, golang.org/x/net 0.61.0, golang.org/x/crypto 0.58.0 and google.golang.org/grpc 1.83.2.
+
+Keep applicable upstream corrections and fork residuals with their author credits and controls. Preserve typed catalog failures, session and savepoint state, global SET privilege rechecks, Full-Text, normal and prepared reads, history and refs, journal callbacks and content-hashed archive dictionary identity. Installation requires ordinary bidirectional native backups, a separate rekeyed-conflict old-client refusal check and matched data and engine recovery.
+
+The following entries record earlier adaptations and the scope of their original verification.
+
 ## Keyless unique writes and SQL report corrections
 
-Adapt fulghum's [Dolt PR #12225](https://github.com/dolthub/dolt/pull/12225), addressing skysoul1024's #12219: validate secondary unique keys before insertion and reset builders for rejected rows and REPLACE retries. Preserve unique, nonunique, nullable and partial-index behavior. The analyzer carries the scoped #12218 and #12220–12223 corrections and normal/prepared consumer regressions; retain the existing authorization and SQL fixes. go-jose/v4 selects 4.1.6 for its bounded RSA JWK parsing; its 4096-bit default is a compatibility limit, and it is separate from Dolt's v2 JWT implementation.
+Adapt fulghum's [Dolt PR #12225](https://github.com/dolthub/dolt/pull/12225), addressing skysoul1024's #12219: validate secondary unique keys before insertion and reset builders for rejected rows and REPLACE retries. Preserve unique, nonunique, nullable and partial-index behavior. The analyzer carries the scoped #12218 and #12220–12223 corrections and normal/prepared consumer regressions; retain the existing authorization and SQL fixes. That integration selected go-jose/v4 4.1.6 for its bounded RSA JWK parsing; its 4096-bit default is a compatibility limit, and it is separate from Dolt's v2 JWT implementation.
 
 The SQL analyzer includes the global-variable authorization correction for [Dolt #12207](https://github.com/dolthub/dolt/issues/12207): SYSTEM_VARIABLES_ADMIN or SUPER is required for global and persisted assignments, with current privileges checked again for bound plans. The server regression verifies limited-user rejection without changing global or persisted values, session assignments, administrative persistence and prepared execution after REVOKE.
 
-This dependency fork starts from official Dolt v2.6.0 at `05e6bceb1a210a7a8d770b74b8ef4825c165c0a8`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads. This release and its SQL analyzer require Go 1.27.3.
+The preceding integration used official Dolt v2.6.0 at `05e6bceb1a210a7a8d770b74b8ef4825c165c0a8`. It keeps corrections inside the storage engine rather than adding SQL workarounds to Beads. That release used Go 1.27.3 for the engine and SQL analyzer.
 
 The 2.6.0 integration reuses upstream changes already corresponding to carried fixes instead of applying them twice. It retains the fork's execution-time log options, remote-save ordering, non-unique ancestor lookup and storage/SQL regressions. The ORT merge-base implementation is reused with an explicit refusal when its virtual base contains conflicting cells, including the three-dot diff entry point; automatic reconciliation of such bases remains outside this fork's admitted behavior.
 
@@ -74,8 +82,8 @@ Adapt [PR #12171](https://github.com/dolthub/dolt/pull/12171) by angelamayxie: c
 
 ## Archive dictionary retention (#12177)
 
-Deduplicate archive dictionaries by a SHA-256 of their raw content, rather than
-the address of a decoded bundle. Reader-cache eviction can create new bundle
+Deduplicate archive dictionaries by the unchanged upstream hash.Of of their raw
+content, rather than the address of a decoded bundle. Reader-cache eviction can create new bundle
 objects for the same dictionary; those objects no longer multiply output
 dictionaries or stay pinned by the stream writer. Build compression dictionaries
 only for actual Snappy recompression, preserving concurrent initialization.

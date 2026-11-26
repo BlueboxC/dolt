@@ -21,6 +21,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/expression"
+	"github.com/dolthub/go-mysql-server/sql/plan"
 	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/mysql"
 
@@ -305,7 +306,7 @@ func (ltf *LogTableFunction) WithChildren(_ *sql.Context, children ...sql.Node) 
 
 // CheckAuth implements the interface sql.AuthorizationCheckerNode.
 func (ltf *LogTableFunction) CheckAuth(ctx *sql.Context, opChecker sql.PrivilegedOperationChecker) bool {
-	baseDB, _ := doltdb.SplitRevisionDbName(ltf.database.Name())
+	baseDB := plan.CheckPrivilegeNameForDatabase(ltf.database)
 	tblNames, err := ltf.database.GetTableNames(ctx)
 	if err != nil {
 		return false
@@ -473,7 +474,7 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 			return false, nil
 		}
 
-		return commit.NumParents() >= args.minParents, nil
+		return commit.NumParents() >= ltf.minParents, nil
 	}
 
 	cHashToRefs, err := dtables.GetCommitHashToRefs(ctx, sqledb.DbData().Ddb, args.decoration)
@@ -511,55 +512,11 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 			return nil, err
 		}
 		commit, ok = optCmt.ToCommit()
-		if !ok {
+		if err != nil {
 			return nil, doltdb.ErrGhostCommitEncountered
 		}
 
 		commits = append(commits, commit)
-	}
-
-	if args.allBranches {
-		ddb := sqledb.DbData().Ddb
-		branches, err := ddb.GetBranchesWithHashes(ctx)
-		if err != nil {
-			return nil, err
-		}
-		remotes, err := ddb.GetRemotesWithHashes(ctx)
-		if err != nil {
-			return nil, err
-		}
-		heads := make([]hash.Hash, 0, len(branches)+len(remotes))
-		for _, branch := range branches {
-			heads = append(heads, branch.Hash)
-		}
-		for _, remote := range remotes {
-			heads = append(heads, remote.Hash)
-		}
-		// Keep one starting commit per hash, including the session head. This
-		// retains the single-commit iterator and its HEAD decoration when refs alias.
-		seen := make(map[hash.Hash]struct{}, len(commits)+len(heads))
-		for _, commit := range commits {
-			h, err := commit.HashOf()
-			if err != nil {
-				return nil, err
-			}
-			seen[h] = struct{}{}
-		}
-		for _, h := range heads {
-			if _, ok := seen[h]; ok {
-				continue
-			}
-			opt, err := ddb.ReadCommit(ctx, h)
-			if err != nil {
-				return nil, err
-			}
-			commit, ok := opt.ToCommit()
-			if !ok {
-				return nil, doltdb.ErrGhostCommitEncountered
-			}
-			seen[h] = struct{}{}
-			commits = append(commits, commit)
-		}
 	}
 
 	var notCommits []*doltdb.Commit
@@ -582,41 +539,27 @@ func (ltf *LogTableFunction) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter
 	}
 
 	if threeDot {
-		// Exclude every common base, including histories with criss-cross merges.
+		// Like git log A...B, exclude every merge base, so that no commit reachable from both sides is listed.
 		mergeBases, err := doltdb.GetCommitAncestors(ctx, commits[0], commits[1])
 		if err != nil {
 			return nil, err
 		}
-		for _, base := range mergeBases {
-			commit, ok := base.ToCommit()
+		for _, optCmt := range mergeBases {
+			mergeCommit, ok := optCmt.ToCommit()
 			if !ok {
 				return nil, doltdb.ErrGhostCommitEncountered
 			}
-			notCommits = append(notCommits, commit)
+			notCommits = append(notCommits, mergeCommit)
 		}
 
-		return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
+		return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, ltf.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
 	}
 
-	if len(commits) == 0 {
-		return sql.RowsToRowIter(), nil
+	if len(revisionValStrs) <= 1 && len(notRevisionValStrs) == 0 {
+		return ltf.NewLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits[0], matchFunc, cHashToRefs, ltf.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
 	}
 
-	if len(commits) == 1 && len(notCommits) == 0 {
-		return ltf.NewLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits[0], matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
-	}
-
-	iter, err := ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, args.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
-	if err != nil {
-		return nil, err
-	}
-	if args.allBranches && len(revisionValStrs) == 0 {
-		iter.headHash, err = commits[0].HashOf()
-		if err != nil {
-			return nil, err
-		}
-	}
-	return iter, nil
+	return ltf.NewDotDotLogTableFunctionRowIter(ctx, sqledb.DbData().Ddb, commits, notCommits, matchFunc, cHashToRefs, ltf.tableNames, dtables.LogRowOptions{ShowParents: args.showParents, ShowSignature: args.showSignature})
 }
 
 var _ sql.RowIter = (*logTableFunctionRowIter)(nil)

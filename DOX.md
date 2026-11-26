@@ -10,7 +10,8 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 ## Local Contracts
 
-- Base engine changes on the official v2.6.0 commit 05e6bceb1a210a7a8d770b74b8ef4825c165c0a8. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes. The engine and analyzer require Go 1.27.3; consumers must select that compiler before building.
+- Base engine changes on Dolt v2.7.6 `1dc4f710c87b75f8560d168e8df4fd2bd391834f`, GMS `a5728034101f276c024d3478e9f08b4c5f4bd786` and Vitess `v0.0.0-20261120232051-da8944cd9673`. The engine and analyzer pins are selected explicitly by consumer main modules. Keep main available for upstream synchronization and publish engine fixes on codex/beads-engine-fixes. The module minimum is Go 1.27.3. Select Go 1.27.4 for qualification and consumer builds.
+- Keep at least go-jose/v4 4.1.7, klauspost/compress 1.20.2, golang.org/x/net 0.61.0, golang.org/x/crypto 0.58.0 and google.golang.org/grpc 1.83.2.
 - Keep storage corrections in Dolt. Do not introduce Beads-specific schema, tasks, orchestration, configuration or private project data.
 - Preserve upstream contributor tests and attribution. Remove a carried patch only after the corresponding upstream behavior passes its regression.
 - Reject incompatible explicit-revision primary-key diffs instead of returning mispaired rows. Historical system-table scans retain warning-and-stop behavior. Preserve supported same-key and physically compatible type changes.
@@ -26,7 +27,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 - SQL remote removal publishes session-map changes only after repository-state saving succeeds; provider, read and save failures retain the live remote and tracking entries.
 - KV lookup equality and the keyless secondary reader skip NULL keys unless the corresponding equality is explicitly NULL-safe. Preserve keyless duplicate cardinality and outer NULL extension.
 - Matching primary-key changes on both branches may project an unchanged-type ancestor key with unique non-NULL values. Preserve ancestor history, ordinary secondary indexes, constraints and conflict-base reachability; unsupported layouts retain the existing refusal.
-- Recursive merge bases reuse upstream 2.6.0's ORT resolver, with the fork's explicit refusal of conflicting virtual bases retained at merge and three-dot diff entry points. Keep deterministic clean-base resolution and branch, working-set and tag references; immutable virtual objects may be materialized.
+- Recursive merge bases use upstream's ORT resolver, with the fork's explicit refusal of conflicting virtual bases retained at merge and three-dot diff entry points. Keep deterministic clean-base resolution and branch, working-set and tag references; immutable virtual objects may be materialized.
 - Artifact address traversal retains virtual conflict-base commits during garbage collection and native backup. Rollback after feature writes requires the matching retained data and engine, rather than a binary-only downgrade.
 
 - DOLT_LOG --all traverses local and remote branch heads with the session head, deduplicating starting hashes and retaining HEAD decoration. Refuse --all mixed with two/three-dot ranges before traversal; preserve explicit exclusions, table filters, prepared options, ordinary HEAD-only reads and the all-common-ancestor three-dot guard.
@@ -41,7 +42,7 @@ Root owns upstream attribution, the pinned base and patch policy. Upstream remai
 
 - Remote upload readers reject length/checksum mismatches before table publication. Existing table files use no-replace publication and retain contents; refresh their pruning grace timestamp. Chunk references validate the content hash before address traversal. Preserve error propagation and pending-file protection.
 
-- Archive stream writers deduplicate dictionary content by SHA-256, independently of reader-cache object identity. Copying/decompressing archived chunks creates no compression dictionary; create it only when recompressing Snappy input. Preserve archive format, chunk hashes and cancellation semantics.
+- Archive stream writers deduplicate raw dictionary content using the unchanged upstream hash.Of identity, independently of reader-cache object identity. Equal dictionaries from different reader instances must resolve to one output dictionary. Copying/decompressing archived chunks creates no compression dictionary; create it only when recompressing Snappy input. Preserve archive format, chunk hashes and cancellation semantics.
 
 - Keyless conflict artifact deletion hashes base rows with the base value descriptor and added rows with ours. Type/layout differences must not coerce historical rows into the current schema; preserve row cardinality and unrelated artifacts.
 
@@ -73,6 +74,8 @@ From go/, run the affected DiffTableFunction, DiffStatTableFunction, DiffSummary
 Run ForkMergeCorrections in normal/prepared modes, merge and artifact traversal packages, and a persisted conflict through full garbage collection, native backup/restore and a cold reopen.
 
 Run TestDoltSetGlobalAuthorization, TestUserPrivileges and persistence tests after changing the analyzer authorization pin; verify denied statements leave global values and persisted configuration unchanged, including prepared execution after REVOKE.
+
+Run ordinary old/new native-backup round trips against the preceding tuple. Verify logical roots, refs and history after restore, writes, GC and cold reopen. Cover the expected old-client refusal for rekeyed conflict artifacts separately and retain the matched prior data and binary.
 
 ## Child DOX Index
 

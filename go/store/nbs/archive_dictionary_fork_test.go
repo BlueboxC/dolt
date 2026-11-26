@@ -115,14 +115,16 @@ func TestForkArchiveReadBuildsCompressionDictionaryOnlyOnDemand(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, data, got.Data())
 	require.Nil(t, bundle.cDict, "read-only and copy paths must not build a compression dictionary")
-	first, err := bundle.compressionDictionary()
+	provider, ok := any(bundle).(interface{ compressionDictionary() (*gozstd.CDict, error) })
+	require.True(t, ok, "lazy compression dictionary provider")
+	first, err := provider.compressionDictionary()
 	require.NoError(t, err)
 	require.NotNil(t, first)
 	t.Run("concurrent reuse", func(t *testing.T) {
 		for i := 0; i < 16; i++ {
 			t.Run(fmt.Sprint(i), func(t *testing.T) {
 				t.Parallel()
-				next, err := bundle.compressionDictionary()
+				next, err := provider.compressionDictionary()
 				require.NoError(t, err)
 				require.Same(t, first, next)
 			})
@@ -137,15 +139,31 @@ func TestForkArchiveDictionaryContentIndependentOfCompression(t *testing.T) {
 	second, err := NewDecompBundle(gozstd.CompressLevel(nil, raw, 9))
 	require.NoError(t, err)
 	require.NotSame(t, first, second)
+	cd, err := gozstd.NewCDict(raw)
+	require.NoError(t, err)
 	w, err := NewArchiveStreamWriter(t.TempDir())
 	require.NoError(t, err)
 	defer w.Cancel()
-	a, n, err := w.writeDictionary(first)
-	require.NoError(t, err)
-	require.Positive(t, n)
-	b, n, err := w.writeDictionary(second)
-	require.NoError(t, err)
-	require.Equal(t, a, b)
-	require.Zero(t, n)
+	values := make(map[hash.Hash][]byte)
+	for i, bundle := range []*DecompBundle{first, second} {
+		data := []byte(fmt.Sprintf("same-raw-dictionary-chunk-%d", i))
+		c := chunks.NewChunk(data)
+		compressed := gozstd.CompressDict(nil, data, cd)
+		count, err := w.AddChunk(NewArchiveToChunker(c.Hash(), bundle, compressed))
+		require.NoError(t, err)
+		if i == 0 {
+			require.Greater(t, count, uint32(len(compressed)))
+		} else {
+			require.Equal(t, uint32(len(compressed)), count, "reused dictionary must contribute zero bytes")
+		}
+		values[c.Hash()] = data
+	}
 	require.Len(t, w.dictMap, 1)
+	reader := forkOpenWrittenArchive(t, w)
+	require.Equal(t, 1, forkArchiveDictionaryCount(reader))
+	for h, expected := range values {
+		got, err := reader.get(context.Background(), h, &Stats{})
+		require.NoError(t, err)
+		require.Equal(t, expected, got)
+	}
 }

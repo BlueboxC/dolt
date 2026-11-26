@@ -13,6 +13,7 @@ import (
 )
 
 func TestForkSQLTypeAndJoinCorrections(t *testing.T) {
+	t.Run("rekey_boundaries", r8CheckRekeyBoundaries)
 	scripts := append([]queries.ScriptTest(nil), queries.GreatestLeastTypeForkTests...)
 	for _, script := range queries.JoinScriptTests {
 		if script.Name == "join reordering does not drop filters of large cross join" {

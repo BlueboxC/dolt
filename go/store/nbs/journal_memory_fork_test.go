@@ -106,21 +106,6 @@ func TestForkJournalBurstReleasesIdleBuffer(t *testing.T) {
 	require.Less(t, perJournal, int64(256*1024))
 }
 
-func TestForkJournalFixedBufferSurvivesFlush(t *testing.T) {
-	ctx := context.Background()
-	w := newTestJournalWriter(t, filepath.Join(t.TempDir(), "journal"))
-	defer w.Close()
-	w.bufLimit = 0
-	w.buf = make([]byte, 0, 128*1024)
-	buf, err := w.getBytes(ctx, dherrors.FatalBehaviorError, 128*1024)
-	require.NoError(t, err)
-	copy(buf, "fixed writer")
-	require.NoError(t, w.flush(ctx, dherrors.FatalBehaviorError))
-	require.Equal(t, 128*1024, cap(w.buf))
-	_, err = w.getBytes(ctx, dherrors.FatalBehaviorError, 128*1024)
-	require.NoError(t, err)
-}
-
 func BenchmarkForkJournalBurstFlush(b *testing.B) {
 	for _, size := range []int{4096, 2 * 1024 * 1024} {
 		b.Run(fmt.Sprint(size), func(b *testing.B) {
@@ -157,4 +142,19 @@ func TestForkJournalBufferRetainsRecordLimit(t *testing.T) {
 	_, err = w.readAt(got, 0)
 	require.NoError(t, err)
 	require.Equal(t, before, got)
+}
+
+func TestForkJournalFixedBufferSurvivesFlush(t *testing.T) {
+	ctx := context.Background()
+	base, err := createJournalWriter(ctx, filepath.Join(t.TempDir(), "journal"))
+	require.NoError(t, err)
+	w := &journalWriter{journal: base.journal, path: base.path, buf: make([]byte, 0, 128*1024)}
+	defer w.Close()
+	buf, err := w.getBytes(ctx, dherrors.FatalBehaviorError, 128*1024)
+	require.NoError(t, err)
+	copy(buf, "fixed writer")
+	require.NoError(t, w.flush(ctx, dherrors.FatalBehaviorError))
+	require.Equal(t, 128*1024, cap(w.buf))
+	_, err = w.getBytes(ctx, dherrors.FatalBehaviorError, 128*1024)
+	require.NoError(t, err)
 }
