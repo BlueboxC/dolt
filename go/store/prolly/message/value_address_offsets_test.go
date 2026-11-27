@@ -64,9 +64,9 @@ func TestMergeArtifactValueAddressOffsets(t *testing.T) {
 	}
 	value := func(base *hash.Hash) []byte {
 		if base == nil {
-			return val.NewTuple(sharedPool, []byte(`{"bc":"x"}`))
+			return val.NewTuple(sharedPool, append([]byte(`{"other":"x"}`), 0))
 		}
-		return val.NewTuple(sharedPool, []byte(`{"bc":"x"}`), base[:])
+		return val.NewTuple(sharedPool, append([]byte(`{"other":"x"}`), 0), base[:])
 	}
 
 	t.Run("values without a base address omit the field and stay readable by older clients", func(t *testing.T) {

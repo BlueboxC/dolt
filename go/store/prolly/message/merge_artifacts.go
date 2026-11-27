@@ -208,7 +208,21 @@ func walkMergeArtifactAddresses(ctx context.Context, msg serial.Message, cb func
 			if len(artifactType) != 1 || artifactType[0] != 1 {
 				continue
 			}
-			metadata, ok := descriptor.GetJSON(0, val.Tuple(values.GetItem(i, msg)))
+			value := val.Tuple(values.GetItem(i, msg))
+			if len(value) < 2 {
+				return fmt.Errorf("invalid artifact value during address walk")
+			}
+			fields := int(binary.LittleEndian.Uint16(value[len(value)-2:]))
+			if fields > len(value)/2 {
+				return fmt.Errorf("invalid artifact value field count during address walk")
+			}
+			if fields > 1 {
+				split := len(value) - 2*fields
+				if int(binary.LittleEndian.Uint16(value[split:split+2])) > split {
+					return fmt.Errorf("invalid artifact value offset during address walk")
+				}
+			}
+			metadata, ok := descriptor.GetJSON(0, value)
 			if !ok || !bytes.Contains(metadata, []byte(`"bc"`)) {
 				continue
 			}

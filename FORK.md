@@ -160,3 +160,15 @@ Pin [BlueboxC/go-mysql-server1aa8b38f5b78](https://github.com/BlueboxC/go-mysql-
 ## Remote branch log traversal (#12209)
 
 Adapt [PR #12209](https://github.com/dolthub/dolt/pull/12209) through the existing local-branch --all support: include remote branch heads and the session head, deduplicate starting hashes, preserve HEAD decoration and retain --all in rendered options. Mixed two/three-dot ranges refuse before traversal. Explicit exclusions, table filters, ordinary HEAD reads and the fork's every-common-ancestor three-dot guard remain in force. This SQL query correction grants no new server history or storage authority.
+
+
+## Conflict artifact tuple bounds
+
+Validate the tuple header and first JSON field boundary before reading conflict
+artifact metadata during address traversal. Malformed conflict values return an
+error instead of panicking. Retain valid legacy virtual-base addresses, opaque
+nonconflict values, unrelated metadata and JSON/hash error propagation. The
+serializer-level RED/GREEN test and the real artifact-map traversal test qualify
+this correction; they do not establish external attacker admission or a
+product GC worker crash. Full native backup and cold-reopen qualification
+remains a separate installation gate.
